@@ -31,9 +31,9 @@ use winapi::{
 };
 
 pub const ORIGIN_PROCESS_EXE: &'static str = "C:\\Windows\\System32\\RuntimeBroker.exe";
-pub const WIN_MAG_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_rustdesk.exe";
+pub const WIN_MAG_INJECTED_PROCESS_EXE: &'static str = "RuntimeBroker_notepod.exe";
 pub const INJECTED_PROCESS_EXE: &'static str = WIN_MAG_INJECTED_PROCESS_EXE;
-pub const PRIVACY_WINDOW_NAME: &'static str = "RustDeskPrivacyWindow";
+pub const PRIVACY_WINDOW_NAME: &'static str = "notepodPrivacyWindow";
 
 pub const OCCUPIED: &'static str = "Privacy occupied by another one";
 pub const TURN_OFF_OTHER_ID: &'static str =
@@ -153,10 +153,10 @@ pub fn start() -> ResultType<()> {
     }
 
     let exe_file = std::env::current_exe()?;
-    if exe_file.parent().is_none() {
+    let Some(cur_dir) = exe_file
+    .parent() else {
         bail!("Cannot get parent of current exe file");
-    }
-    let cur_dir = exe_file.parent().unwrap();
+    };
 
     let dll_file = cur_dir.join("WindowInjection.dll");
     if !dll_file.exists() {
@@ -344,6 +344,7 @@ async fn set_privacy_mode_state(
 }
 
 pub(super) mod privacy_hook {
+
     use super::*;
     use std::sync::mpsc::{channel, Sender};
 
@@ -426,7 +427,7 @@ pub(super) mod privacy_hook {
                     }
                     Err(e) => {
                         // Fatal error
-                        tx.send(format!("Unexpected err when hook {}", e)).unwrap();
+                        allow_err!(tx.send(format!("Unexpected err when hook {}", e)));
                         return;
                     }
                 }
