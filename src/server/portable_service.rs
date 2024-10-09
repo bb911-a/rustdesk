@@ -222,8 +222,6 @@ mod utils {
 
 // functions called in separate SYSTEM user process.
 pub mod server {
-    use hbb_common::message_proto::PointerDeviceEvent;
-
     use super::*;
 
     lazy_static::lazy_static! {
@@ -231,13 +229,7 @@ pub mod server {
     }
 
     pub fn run_portable_service() {
-        let shmem = match SharedMemory::open_existing(SHMEM_NAME) {
-            Ok(shmem) => Arc::new(shmem),
-            Err(e) => {
-                log::error!("Failed to open existing shared memory: {:?}", e);
-                return;
-            }
-        };
+        let shmem = Arc::new(SharedMemory::open_existing(SHMEM_NAME).unwrap());
         let shmem1 = shmem.clone();
         let shmem2 = shmem.clone();
         let mut threads = vec![];
@@ -255,7 +247,7 @@ pub mod server {
         }));
         let record_pos_handle = crate::input_service::try_start_record_cursor_pos();
         for th in threads.drain(..) {
-            th.join().ok();
+            th.join().unwrap();
             log::info!("thread joined");
         }
 
@@ -325,11 +317,7 @@ pub mod server {
                 }
                 if c.is_none() {
                     *crate::video_service::CURRENT_DISPLAY.lock().unwrap() = current_display;
-                    let Ok((_, _current, display)) = get_current_display() else {
-                        log::error!("Failed to get current display");
-                        *EXIT.lock().unwrap() = true;
-                        return;
-                    };
+                    let (_, _current, display) = get_current_display().unwrap();
                     display_width = display.width();
                     display_height = display.height();
                     match Capturer::new(display, use_yuv) {
@@ -390,8 +378,8 @@ pub mod server {
                         continue;
                     }
                 }
-                match c.as_mut().map(|f| f.frame(spf)) {
-                    Some(Ok(f)) => {
+                match c.as_mut().unwrap().frame(spf) {
+                    Ok(f) => {
                         utils::set_frame_info(
                             &shmem,
                             FrameInfo {
@@ -406,7 +394,7 @@ pub mod server {
                         first_frame_captured = true;
                         dxgi_failed_times = 0;
                     }
-                    Some(Err(e)) => {
+                    Err(e) => {
                         if e.kind() != std::io::ErrorKind::WouldBlock {
                             // DXGI_ERROR_INVALID_CALL after each success on Microsoft GPU driver
                             // log::error!("capture frame failed:{:?}", e);
@@ -416,8 +404,7 @@ pub mod server {
                                 std::thread::sleep(spf);
                                 continue;
                             }
-                            if c.as_ref().map(|c| c.is_gdi()) == Some(false) {
-                                // nog gdi
+                            if !c.as_ref().unwrap().is_gdi() {
                                 dxgi_failed_times += 1;
                             }
                             if dxgi_failed_times > MAX_DXGI_FAIL_TIME {
@@ -428,9 +415,6 @@ pub mod server {
                         } else {
                             shmem.write(ADDR_CAPTURE_WOULDBLOCK, &utils::i32_to_vec(TRUE));
                         }
-                    }
-                    _ => {
-                        println!("unreachable!");
                     }
                 }
             }
@@ -482,11 +466,6 @@ pub mod server {
                                             crate::input_service::handle_mouse_(&evt, conn);
                                         }
                                     }
-                                    Pointer((v, conn)) => {
-                                        if let Ok(evt) = PointerDeviceEvent::parse_from_bytes(&v) {
-                                            crate::input_service::handle_pointer_(&evt, conn);
-                                        }
-                                    }
                                     Key(v) => {
                                         if let Ok(evt) = KeyEvent::parse_from_bytes(&v) {
                                             crate::input_service::handle_key_(&evt);
@@ -520,7 +499,7 @@ pub mod server {
 
 // functions called in main process.
 pub mod client {
-    use hbb_common::{anyhow::Context, message_proto::PointerDeviceEvent};
+    use hbb_common::anyhow::Context;
 
     use super::*;
 
@@ -885,14 +864,6 @@ pub mod client {
         ))))
     }
 
-    fn handle_pointer_(evt: &PointerDeviceEvent, conn: i32) -> ResultType<()> {
-        let mut v = vec![];
-        evt.write_to_vec(&mut v)?;
-        ipc_send(Data::DataPortableService(DataPortableService::Pointer((
-            v, conn,
-        ))))
-    }
-
     fn handle_key_(evt: &KeyEvent) -> ResultType<()> {
         let mut v = vec![];
         evt.write_to_vec(&mut v)?;
@@ -936,15 +907,6 @@ pub mod client {
             handle_mouse_(evt, conn).ok();
         } else {
             crate::input_service::handle_mouse_(evt, conn);
-        }
-    }
-
-    pub fn handle_pointer(evt: &PointerDeviceEvent, conn: i32) {
-        if RUNNING.lock().unwrap().clone() {
-            crate::input_service::update_latest_input_cursor_time(conn);
-            handle_pointer_(evt, conn).ok();
-        } else {
-            crate::input_service::handle_pointer_(evt, conn);
         }
     }
 

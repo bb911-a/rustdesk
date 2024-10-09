@@ -107,9 +107,7 @@ pub fn make_tray() -> hbb_common::ResultType<()> {
                     return;
                 }
                 */
-                if !crate::platform::uninstall_service(false) {
-                    *control_flow = ControlFlow::Exit;
-                }
+                crate::platform::uninstall_service(false);
             } else if event.id == open_i.id() {
                 open_func();
             }

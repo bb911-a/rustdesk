@@ -126,7 +126,7 @@ class GroupModel {
         throw error;
       }
       groupName.value = data['name'] ?? '';
-      groupId.value = data['guid'] ?? '';
+      groupId.value = data['id'] ?? '';
       return groupId.value.isNotEmpty && groupName.isNotEmpty;
     } catch (e) {
       debugPrint('$e');

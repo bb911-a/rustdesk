@@ -223,8 +223,9 @@ void showServerSettingsWithValue(
                         labelText: 'Key',
                       ),
                     ),
-                    // NOT use Offstage to wrap LinearProgressIndicator
-                    if (isInProgress) const LinearProgressIndicator(),
+                    Offstage(
+                        offstage: !isInProgress,
+                        child: LinearProgressIndicator())
                   ])),
       actions: [
         dialogButton('Cancel', onPressed: () {

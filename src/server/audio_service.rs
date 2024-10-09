@@ -13,10 +13,10 @@
 // https://github.com/krruzic/pulsectl
 
 use super::*;
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-use hbb_common::anyhow::anyhow;
 use magnum_opus::{Application::*, Channels::*, Encoder};
 use std::sync::atomic::{AtomicBool, Ordering};
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+use hbb_common::anyhow::anyhow;
 
 pub const NAME: &'static str = "audio";
 pub const AUDIO_DATA_SIZE_U8: usize = 960 * 4; // 10ms in 48000 stereo
@@ -206,10 +206,13 @@ mod cpal_impl {
                 }
             }
         }
-        let device = device.unwrap_or(
-            HOST.default_input_device()
-                .with_context(|| "Failed to get default input device for loopback")?,
-        );
+        if device.is_none() {
+            device = Some(
+                HOST.default_input_device()
+                    .with_context(|| "Failed to get default input device for loopback")?,
+            );
+        }
+        let device = device.unwrap();
         log::info!("Input device: {}", device.name().unwrap_or("".to_owned()));
         let format = device
             .default_input_config()

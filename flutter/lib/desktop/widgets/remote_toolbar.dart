@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:ui' as ui;
 import 'dart:async';
 import 'dart:io';
 
@@ -36,7 +37,7 @@ class ToolbarState {
   late RxBool _pin;
 
   ToolbarState() {
-    final s = bind.getLocalFlutterOption(k: kStoreKey);
+    final s = bind.getLocalFlutterConfig(k: kStoreKey);
     if (s.isEmpty) {
       _initSet(false, false);
       return;
@@ -89,7 +90,7 @@ class ToolbarState {
   }
 
   _savePin() async {
-    bind.setLocalFlutterOption(
+    bind.setLocalFlutterConfig(
         k: kStoreKey, v: jsonEncode({'pin': _pin.value}));
   }
 
@@ -359,9 +360,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
 
   triggerAutoHide() => _debouncerHide.value = _debouncerHide.value + 1;
 
-  void _minimize() async =>
-      await WindowController.fromWindowId(windowId).minimize();
-
   @override
   initState() {
     super.initState();
@@ -431,8 +429,6 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
               dragging: _dragging,
               fractionX: _fractionX,
               show: show,
-              setFullscreen: _setFullscreen,
-              setMinimize: _minimize,
             ),
           ),
         ),
@@ -444,6 +440,8 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     final List<Widget> toolbarItems = [];
     if (!isWebDesktop) {
       toolbarItems.add(_PinMenu(state: widget.state));
+      toolbarItems.add(
+          _FullscreenMenu(state: widget.state, setFullscreen: _setFullscreen));
       toolbarItems.add(_MobileActionMenu(ffi: widget.ffi));
     }
 
@@ -551,6 +549,27 @@ class _PinMenu extends StatelessWidget {
   }
 }
 
+class _FullscreenMenu extends StatelessWidget {
+  final ToolbarState state;
+  final Function(bool) setFullscreen;
+  bool get isFullscreen => stateGlobal.fullscreen;
+  const _FullscreenMenu(
+      {Key? key, required this.state, required this.setFullscreen})
+      : super(key: key);
+
+  @override
+  Widget build(BuildContext context) {
+    return _IconMenuButton(
+      assetName:
+          isFullscreen ? "assets/fullscreen_exit.svg" : "assets/fullscreen.svg",
+      tooltip: isFullscreen ? 'Exit Fullscreen' : 'Fullscreen',
+      onPressed: () => setFullscreen(!isFullscreen),
+      color: _ToolbarTheme.blueColor,
+      hoverColor: _ToolbarTheme.hoverBlueColor,
+    );
+  }
+}
+
 class _MobileActionMenu extends StatelessWidget {
   final FFI ffi;
   const _MobileActionMenu({Key? key, required this.ffi}) : super(key: key);
@@ -595,7 +614,7 @@ class _MonitorMenu extends StatelessWidget {
       children: [
         SvgPicture.asset(
           "assets/screen.svg",
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
+          color: Colors.white,
         ),
         Obx(() {
           RxInt display = CurrentDisplayState.find(id);
@@ -620,7 +639,7 @@ class _MonitorMenu extends StatelessWidget {
         topLevel: false,
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
-        tooltip: "#${i + 1} monitor",
+        tooltip: "",
         hMargin: 6,
         vMargin: 12,
         icon: Container(
@@ -631,7 +650,7 @@ class _MonitorMenu extends StatelessWidget {
             children: [
               SvgPicture.asset(
                 "assets/screen.svg",
-                colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                color: Colors.white,
               ),
               Text(
                 (i + 1).toString(),
@@ -702,7 +721,7 @@ class ScreenAdjustor {
   bool get isFullscreen => stateGlobal.fullscreen;
   int get windowId => stateGlobal.windowId;
 
-  adjustWindow(BuildContext context) {
+  adjustWindow() {
     return futureBuilder(
         future: isWindowCanBeAdjusted(),
         hasData: (data) {
@@ -712,7 +731,7 @@ class ScreenAdjustor {
             children: [
               MenuButton(
                   child: Text(translate('Adjust Window')),
-                  onPressed: () => doAdjustWindow(context),
+                  onPressed: doAdjustWindow,
                   ffi: ffi),
               Divider(),
             ],
@@ -720,19 +739,20 @@ class ScreenAdjustor {
         });
   }
 
-  doAdjustWindow(BuildContext context) async {
+  doAdjustWindow() async {
     await updateScreen();
     if (_screen != null) {
       cbExitFullscreen();
       double scale = _screen!.scaleFactor;
       final wndRect = await WindowController.fromWindowId(windowId).getFrame();
-      final mediaSize = MediaQueryData.fromView(View.of(context)).size;
+      final mediaSize = MediaQueryData.fromWindow(ui.window).size;
       // On windows, wndRect is equal to GetWindowRect and mediaSize is equal to GetClientRect.
       // https://stackoverflow.com/a/7561083
       double magicWidth =
           wndRect.right - wndRect.left - mediaSize.width * scale;
       double magicHeight =
           wndRect.bottom - wndRect.top - mediaSize.height * scale;
+
       final canvasModel = ffi.canvasModel;
       final width = (canvasModel.getDisplayWidth() * canvasModel.scale +
                   CanvasModel.leftToEdge +
@@ -875,7 +895,7 @@ class _DisplayMenuState extends State<_DisplayMenu> {
         color: _ToolbarTheme.blueColor,
         hoverColor: _ToolbarTheme.hoverBlueColor,
         menuChildren: [
-          _screenAdjustor.adjustWindow(context),
+          _screenAdjustor.adjustWindow(),
           viewStyle(),
           scrollStyle(),
           imageQuality(),
@@ -1062,9 +1082,9 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     return _SubmenuButton(
       ffi: widget.ffi,
       menuChildren: <Widget>[
-            _OriginalResolutionMenuButton(context, showOriginalBtn),
-            _FitLocalResolutionMenuButton(context, showFitLocalBtn),
-            _customResolutionMenuButton(context, isVirtualDisplay),
+            _OriginalResolutionMenuButton(showOriginalBtn),
+            _FitLocalResolutionMenuButton(showFitLocalBtn),
+            _customResolutionMenuButton(isVirtualDisplay),
             _menuDivider(showOriginalBtn, showFitLocalBtn, isVirtualDisplay),
           ] +
           _supportedResolutionMenuButtons(),
@@ -1105,7 +1125,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     }
   }
 
-  _onChanged(BuildContext context, String? value) async {
+  _onChanged(String? value) async {
     stateGlobal.setLastResolutionGroupValue(
         widget.id, pi.currentDisplay, value);
     if (value == null) return;
@@ -1125,12 +1145,12 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
 
     if (w != null && h != null) {
       if (w != display.width || h != display.height) {
-        await _changeResolution(context, w, h);
+        await _changeResolution(w, h);
       }
     }
   }
 
-  _changeResolution(BuildContext context, int w, int h) async {
+  _changeResolution(int w, int h) async {
     await bind.sessionChangeResolution(
       sessionId: ffi.sessionId,
       display: pi.currentDisplay,
@@ -1141,19 +1161,18 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
       final display = ffiModel.display;
       if (w == display.width && h == display.height) {
         if (await widget.screenAdjustor.isWindowCanBeAdjusted()) {
-          widget.screenAdjustor.doAdjustWindow(context);
+          widget.screenAdjustor.doAdjustWindow();
         }
       }
     });
   }
 
-  Widget _OriginalResolutionMenuButton(
-      BuildContext context, bool showOriginalBtn) {
+  Widget _OriginalResolutionMenuButton(bool showOriginalBtn) {
     return Offstage(
       offstage: !showOriginalBtn,
       child: MenuButton(
-        onPressed: () => _changeResolution(
-            context, display.originalWidth, display.originalHeight),
+        onPressed: () =>
+            _changeResolution(display.originalWidth, display.originalHeight),
         ffi: widget.ffi,
         child: Text(
             '${translate('resolution_original_tip')} ${display.originalWidth}x${display.originalHeight}'),
@@ -1161,15 +1180,14 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     );
   }
 
-  Widget _FitLocalResolutionMenuButton(
-      BuildContext context, bool showFitLocalBtn) {
+  Widget _FitLocalResolutionMenuButton(bool showFitLocalBtn) {
     return Offstage(
       offstage: !showFitLocalBtn,
       child: MenuButton(
         onPressed: () {
           final resolution = _getBestFitResolution();
           if (resolution != null) {
-            _changeResolution(context, resolution.width, resolution.height);
+            _changeResolution(resolution.width, resolution.height);
           }
         },
         ffi: widget.ffi,
@@ -1179,13 +1197,13 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
     );
   }
 
-  Widget _customResolutionMenuButton(BuildContext context, isVirtualDisplay) {
+  Widget _customResolutionMenuButton(isVirtualDisplay) {
     return Offstage(
       offstage: !isVirtualDisplay,
       child: RdoMenuButton(
         value: _kCustomResolutionValue,
         groupValue: _groupValue,
-        onChanged: (String? value) => _onChanged(context, value),
+        onChanged: _onChanged,
         ffi: widget.ffi,
         child: Row(
           children: [
@@ -1226,7 +1244,7 @@ class _ResolutionsMenuState extends State<_ResolutionsMenu> {
       .map((e) => RdoMenuButton(
           value: '${e.width}x${e.height}',
           groupValue: _groupValue,
-          onChanged: (String? value) => _onChanged(context, value),
+          onChanged: _onChanged,
           ffi: widget.ffi,
           child: Text('${e.width}x${e.height}')))
       .toList();
@@ -1546,7 +1564,7 @@ class _CloseMenu extends StatelessWidget {
 class _IconMenuButton extends StatefulWidget {
   final String? assetName;
   final Widget? icon;
-  final String tooltip;
+  final String? tooltip;
   final Color color;
   final Color hoverColor;
   final VoidCallback? onPressed;
@@ -1557,7 +1575,7 @@ class _IconMenuButton extends StatefulWidget {
     Key? key,
     this.assetName,
     this.icon,
-    required this.tooltip,
+    this.tooltip,
     required this.color,
     required this.hoverColor,
     required this.onPressed,
@@ -1579,11 +1597,11 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
     final icon = widget.icon ??
         SvgPicture.asset(
           widget.assetName!,
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
+          color: Colors.white,
           width: _ToolbarTheme.buttonSize,
           height: _ToolbarTheme.buttonSize,
         );
-    var button = SizedBox(
+    final button = SizedBox(
       width: _ToolbarTheme.buttonSize,
       height: _ToolbarTheme.buttonSize,
       child: MenuItemButton(
@@ -1595,25 +1613,18 @@ class _IconMenuButtonState extends State<_IconMenuButton> {
           hover = value;
         }),
         onPressed: widget.onPressed,
-        child: Tooltip(
-          message: translate(widget.tooltip),
-          child: Material(
-              type: MaterialType.transparency,
-              child: Ink(
-                  decoration: BoxDecoration(
-                    borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
-                    color: hover ? widget.hoverColor : widget.color,
-                  ),
-                  child: icon)),
-        )
+        child: Material(
+            type: MaterialType.transparency,
+            child: Ink(
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(_ToolbarTheme.iconRadius),
+                  color: hover ? widget.hoverColor : widget.color,
+                ),
+                child: icon)),
       ),
     ).marginSymmetric(
         horizontal: widget.hMargin ?? _ToolbarTheme.buttonHMargin,
         vertical: widget.vMargin ?? _ToolbarTheme.buttonVMargin);
-    button = Tooltip(
-      message: widget.tooltip,
-      child: button,
-    );
     if (widget.topLevel) {
       return MenuBar(children: [button]);
     } else {
@@ -1657,7 +1668,7 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
     final icon = widget.icon ??
         SvgPicture.asset(
           widget.svg!,
-          colorFilter: ColorFilter.mode(Colors.white, BlendMode.srcIn),
+          color: Colors.white,
           width: _ToolbarTheme.buttonSize,
           height: _ToolbarTheme.buttonSize,
         );
@@ -1670,18 +1681,15 @@ class _IconSubmenuButtonState extends State<_IconSubmenuButton> {
             onHover: (value) => setState(() {
                   hover = value;
                 }),
-                child: Tooltip(
-                  message: translate(widget.tooltip),
-                  child: Material(
-                    type: MaterialType.transparency,
-                    child: Ink(
-                      decoration: BoxDecoration(
-                        borderRadius:
+            child: Material(
+                type: MaterialType.transparency,
+                child: Ink(
+                    decoration: BoxDecoration(
+                      borderRadius:
                           BorderRadius.circular(_ToolbarTheme.iconRadius),
-                          color: hover ? widget.hoverColor : widget.color,
-                      ),
-                      child: icon))
+                      color: hover ? widget.hoverColor : widget.color,
                     ),
+                    child: icon)),
             menuChildren: widget.menuChildren
                 .map((e) => _buildPointerTrackWidget(e, widget.ffi))
                 .toList()));
@@ -1809,18 +1817,12 @@ class _DraggableShowHide extends StatefulWidget {
   final RxDouble fractionX;
   final RxBool dragging;
   final RxBool show;
-
-  final Function(bool) setFullscreen;
-  final Function() setMinimize;
-
   const _DraggableShowHide({
     Key? key,
     required this.sessionId,
     required this.fractionX,
     required this.dragging,
     required this.show,
-    required this.setFullscreen,
-    required this.setMinimize,
   }) : super(key: key);
 
   @override
@@ -1874,7 +1876,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
         widget.dragging.value = true;
       }),
       onDragEnd: (details) {
-        final mediaSize = MediaQueryData.fromView(View.of(context)).size;
+        final mediaSize = MediaQueryData.fromWindow(ui.window).size;
         widget.fractionX.value +=
             (details.offset.dx - position.dx) / (mediaSize.width - size.width);
         if (widget.fractionX.value < left) {
@@ -1899,49 +1901,17 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
       minimumSize: MaterialStateProperty.all(const Size(0, 0)),
       padding: MaterialStateProperty.all(EdgeInsets.zero),
     );
-    final isFullscreen = stateGlobal.fullscreen;
-    const double iconSize = 20;
     final child = Row(
       mainAxisSize: MainAxisSize.min,
       children: [
         _buildDraggable(context),
         TextButton(
-          onPressed: () {
-            widget.setFullscreen(!isFullscreen);
-            setState(() {});
-          },
-          child: Tooltip(
-            message: translate(isFullscreen ? 'Exit Fullscreen' : 'Fullscreen'),
-            child: Icon(
-              isFullscreen ? Icons.fullscreen_exit : Icons.fullscreen,
-              size: iconSize,
-            ),
-          ),
-        ),
-        Offstage(
-          offstage: !isFullscreen,
-          child: TextButton(
-            onPressed: () => widget.setMinimize(),
-            child: Tooltip(
-              message: translate('Minimize'),
-              child: Icon(
-                Icons.remove,
-                size: iconSize,
-              ),
-            ),
-          ),
-        ),
-        TextButton(
           onPressed: () => setState(() {
             widget.show.value = !widget.show.value;
           }),
-          child: Obx((() => Tooltip(
-                message: translate(
-                    widget.show.isTrue ? 'Hide Toolbar' : 'Show Toolbar'),
-                child: Icon(
-                  widget.show.isTrue ? Icons.expand_less : Icons.expand_more,
-                  size: iconSize,
-                ),
+          child: Obx((() => Icon(
+                widget.show.isTrue ? Icons.expand_less : Icons.expand_more,
+                size: 20,
               ))),
         ),
       ],
@@ -2007,7 +1977,6 @@ class _MultiMonitorMenu extends StatelessWidget {
         Obx(() {
           RxInt display = CurrentDisplayState.find(id);
           return _IconMenuButton(
-            tooltip: "",
             topLevel: false,
             color: i == display.value
                 ? _ToolbarTheme.blueColor
@@ -2024,8 +1993,7 @@ class _MultiMonitorMenu extends StatelessWidget {
                 children: [
                   SvgPicture.asset(
                     "assets/screen.svg",
-                    colorFilter:
-                        ColorFilter.mode(Colors.white, BlendMode.srcIn),
+                    color: Colors.white,
                   ),
                   Obx(
                     () => Text(

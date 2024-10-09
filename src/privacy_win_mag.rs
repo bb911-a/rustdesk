@@ -153,10 +153,10 @@ pub fn start() -> ResultType<()> {
     }
 
     let exe_file = std::env::current_exe()?;
-    let Some(cur_dir) = exe_file
-    .parent() else {
+    if exe_file.parent().is_none() {
         bail!("Cannot get parent of current exe file");
-    };
+    }
+    let cur_dir = exe_file.parent().unwrap();
 
     let dll_file = cur_dir.join("WindowInjection.dll");
     if !dll_file.exists() {
@@ -344,7 +344,6 @@ async fn set_privacy_mode_state(
 }
 
 pub(super) mod privacy_hook {
-
     use super::*;
     use std::sync::mpsc::{channel, Sender};
 
@@ -427,7 +426,7 @@ pub(super) mod privacy_hook {
                     }
                     Err(e) => {
                         // Fatal error
-                        allow_err!(tx.send(format!("Unexpected err when hook {}", e)));
+                        tx.send(format!("Unexpected err when hook {}", e)).unwrap();
                         return;
                     }
                 }

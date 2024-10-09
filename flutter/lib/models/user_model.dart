@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:bot_toast/bot_toast.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:get/get.dart';
@@ -16,7 +15,6 @@ bool refreshingUser = false;
 class UserModel {
   final RxString userName = ''.obs;
   final RxBool isAdmin = false.obs;
-  bool get isLogin => userName.isNotEmpty;
   WeakReference<FFI> parent;
 
   UserModel(this.parent);
@@ -45,7 +43,7 @@ class UserModel {
       refreshingUser = false;
       final status = response.statusCode;
       if (status == 401 || status == 400) {
-        reset(clearAbCache: status == 401);
+        reset();
         return;
       }
       final data = json.decode(utf8.decode(response.bodyBytes));
@@ -84,10 +82,10 @@ class UserModel {
     }
   }
 
-  Future<void> reset({bool clearAbCache = false}) async {
+  Future<void> reset() async {
     await bind.mainSetLocalOption(key: 'access_token', value: '');
     await bind.mainSetLocalOption(key: 'user_info', value: '');
-    if (clearAbCache) await bind.mainClearAb();
+    await gFFI.abModel.reset();
     await gFFI.groupModel.reset();
     userName.value = '';
   }
@@ -95,7 +93,6 @@ class UserModel {
   _parseAndUpdateUser(UserPayload user) {
     userName.value = user.name;
     isAdmin.value = user.isAdmin;
-    bind.mainSetLocalOption(key: 'user_info', value: jsonEncode(user));
   }
 
   // update ab and group status
@@ -103,10 +100,10 @@ class UserModel {
     await Future.wait([gFFI.abModel.pullAb(), gFFI.groupModel.pull()]);
   }
 
-  Future<void> logOut({String? apiServer}) async {
+  Future<void> logOut() async {
     final tag = gFFI.dialogManager.showLoading(translate('Waiting'));
     try {
-      final url = apiServer ?? await bind.mainGetApiServer();
+      final url = await bind.mainGetApiServer();
       final authHeaders = getHttpHeaders();
       authHeaders['Content-Type'] = "application/json";
       await http
@@ -120,7 +117,7 @@ class UserModel {
     } catch (e) {
       debugPrint("request /api/logout failed: err=$e");
     } finally {
-      await reset(clearAbCache: true);
+      await reset();
       gFFI.dialogManager.dismissByTag(tag);
     }
   }
@@ -137,10 +134,6 @@ class UserModel {
       body = jsonDecode(utf8.decode(resp.bodyBytes));
     } catch (e) {
       debugPrint("login: jsonDecode resp body failed: ${e.toString()}");
-      if (resp.statusCode != 200) {
-        BotToast.showText(
-            contentColor: Colors.red, text: 'HTTP ${resp.statusCode}');
-      }
       rethrow;
     }
     if (resp.statusCode != 200) {
@@ -169,27 +162,15 @@ class UserModel {
     return loginResponse;
   }
 
-  static Future<List<dynamic>> queryOidcLoginOptions() async {
+  static Future<List<dynamic>> queryLoginOptions() async {
     try {
       final url = await bind.mainGetApiServer();
       if (url.trim().isEmpty) return [];
       final resp = await http.get(Uri.parse('$url/api/login-options'));
-      final List<String> ops = [];
-      for (final item in jsonDecode(resp.body)) {
-        ops.add(item as String);
-      }
-      for (final item in ops) {
-        if (item.startsWith('common-oidc/')) {
-          return jsonDecode(item.substring('common-oidc/'.length));
-        }
-      }
-      return ops
-          .where((item) => item.startsWith('oidc/'))
-          .map((item) => {'name': item.substring('oidc/'.length)})
-          .toList();
+      return jsonDecode(resp.body);
     } catch (e) {
       debugPrint(
-          "queryOidcLoginOptions: jsonDecode resp body failed: ${e.toString()}");
+          "queryLoginOptions: jsonDecode resp body failed: ${e.toString()}");
       return [];
     }
   }

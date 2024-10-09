@@ -41,6 +41,7 @@ pub mod cli;
 #[cfg(not(any(target_os = "android", target_os = "ios", feature = "cli")))]
 pub mod core_main;
 mod lang;
+#[cfg(windows)]
 mod license;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 mod port_forward;

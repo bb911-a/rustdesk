@@ -35,6 +35,7 @@ RustDesk вітає внесок кожного. Дивіться [`docs/CONTRIB
 | Місцезнаходження | Постачальник | Технічні характеристики |
 | --------- | ------------- | ------------------ |
 | Німеччина | Hetzner | 2 VCPU / 4GB RAM |
+| Німеччина | Codext | 4 vCPU / 8GB RAM |
 | Україна (Київ) | [dc.volia](https://dc.volia.com) | 2 vCPU / 4GB RAM |
 
 ## Dev Container

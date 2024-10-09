@@ -46,6 +46,7 @@ pub mod keyboard;
 pub use dlopen;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use machine_uid;
+#[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub use sysinfo;
 pub use toml;
 pub use uuid;
@@ -127,7 +128,7 @@ impl AddrMangle {
             SocketAddr::V4(addr_v4) => {
                 let tm = (SystemTime::now()
                     .duration_since(UNIX_EPOCH)
-                    .unwrap_or(std::time::Duration::ZERO)
+                    .unwrap()
                     .as_micros() as u32) as u128;
                 let ip = u32::from_le_bytes(addr_v4.ip().octets()) as u128;
                 let port = addr.port() as u128;
@@ -160,9 +161,9 @@ impl AddrMangle {
             if bytes.len() != 18 {
                 return Config::get_any_listen_addr(false);
             }
-            let tmp: [u8; 2] = bytes[16..].try_into().unwrap_or_default();
+            let tmp: [u8; 2] = bytes[16..].try_into().unwrap();
             let port = u16::from_le_bytes(tmp);
-            let tmp: [u8; 16] = bytes[..16].try_into().unwrap_or_default();
+            let tmp: [u8; 16] = bytes[..16].try_into().unwrap();
             let ip = std::net::Ipv6Addr::from(tmp);
             return SocketAddr::new(IpAddr::V6(ip), port);
         }
@@ -290,24 +291,16 @@ pub fn get_time() -> i64 {
 
 #[inline]
 pub fn is_ipv4_str(id: &str) -> bool {
-    if let Ok(reg) = regex::Regex::new(
-        r"^(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(:\d+)?$",
-    ) {
-        reg.is_match(id)
-    } else {
-        false
-    }
+    regex::Regex::new(r"^(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)(:\d+)?$")
+        .unwrap()
+        .is_match(id)
 }
 
 #[inline]
 pub fn is_ipv6_str(id: &str) -> bool {
-    if let Ok(reg) = regex::Regex::new(
-        r"^((([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4})|(\[([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4}\]:\d+))$",
-    ) {
-        reg.is_match(id)
-    } else {
-        false
-    }
+    regex::Regex::new(r"^((([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4})|(\[([a-fA-F0-9]{1,4}:{1,2})+[a-fA-F0-9]{1,4}\]:\d+))$")
+        .unwrap()
+        .is_match(id)
 }
 
 #[inline]
@@ -320,13 +313,11 @@ pub fn is_domain_port_str(id: &str) -> bool {
     // modified regex for RFC1123 hostname. check https://stackoverflow.com/a/106223 for original version for hostname.
     // according to [TLD List](https://data.iana.org/TLD/tlds-alpha-by-domain.txt) version 2023011700,
     // there is no digits in TLD, and length is 2~63.
-    if let Ok(reg) = regex::Regex::new(
+    regex::Regex::new(
         r"(?i)^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z-]{0,61}[a-z]:\d{1,5}$",
-    ) {
-        reg.is_match(id)
-    } else {
-        false
-    }
+    )
+    .unwrap()
+    .is_match(id)
 }
 
 pub fn init_log(_is_async: bool, _name: &str) -> Option<flexi_logger::LoggerHandle> {

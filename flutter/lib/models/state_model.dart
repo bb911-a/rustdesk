@@ -10,10 +10,9 @@ enum SvcStatus { notReady, connecting, ready }
 
 class StateGlobal {
   int _windowId = -1;
-  bool grabKeyboard = false;
   bool _fullscreen = false;
-  bool _isMinimized = false;
-  final RxBool isMaximized = false.obs;
+  bool _maximize = false;
+  bool grabKeyboard = false;
   final RxBool _showTabBar = true.obs;
   final RxDouble _resizeEdgeSize = RxDouble(kWindowEdgeSize);
   final RxDouble _windowBorderWidth = RxDouble(kWindowBorderWidth);
@@ -26,7 +25,7 @@ class StateGlobal {
 
   int get windowId => _windowId;
   bool get fullscreen => _fullscreen;
-  bool get isMinimized => _isMinimized;
+  bool get maximize => _maximize;
   double get tabBarHeight => fullscreen ? 0 : kDesktopRemoteTabBarHeight;
   RxBool get showTabBar => _showTabBar;
   RxDouble get resizeEdgeSize => _resizeEdgeSize;
@@ -49,20 +48,12 @@ class StateGlobal {
   }
 
   setWindowId(int id) => _windowId = id;
-  setMaximized(bool v) {
-    if (!_fullscreen) {
-      if (isMaximized.value != v) {
-        isMaximized.value = v;
-        _resizeEdgeSize.value =
-            isMaximized.isTrue ? kMaximizeEdgeSize : kWindowEdgeSize;
-      }
-      if (!Platform.isMacOS) {
-        _windowBorderWidth.value = v ? 0 : kWindowBorderWidth;
-      }
+  setMaximize(bool v) {
+    if (_maximize != v && !_fullscreen) {
+      _maximize = v;
+      _resizeEdgeSize.value = _maximize ? kMaximizeEdgeSize : kWindowEdgeSize;
     }
   }
-
-  setMinimized(bool v) => _isMinimized = v;
 
   setFullscreen(bool v) {
     if (_fullscreen != v) {
@@ -70,11 +61,11 @@ class StateGlobal {
       _showTabBar.value = !_fullscreen;
       _resizeEdgeSize.value = fullscreen
           ? kFullScreenEdgeSize
-          : isMaximized.isTrue
+          : _maximize
               ? kMaximizeEdgeSize
               : kWindowEdgeSize;
       print(
-          "fullscreen: $fullscreen, resizeEdgeSize: ${_resizeEdgeSize.value}");
+          "fullscreen: ${fullscreen}, resizeEdgeSize: ${_resizeEdgeSize.value}");
       _windowBorderWidth.value = fullscreen ? 0 : kWindowBorderWidth;
       WindowController.fromWindowId(windowId)
           .setFullscreen(_fullscreen)

@@ -8,7 +8,6 @@ import 'package:ffi/ffi.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/main.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:path_provider/path_provider.dart';
 
@@ -264,8 +263,7 @@ class PlatformFFI {
 
   /// Start listening to the Rust core's events and frames.
   void _startListenEvent(RustdeskImpl rustdeskImpl) {
-    final appType = _appType == kAppTypeDesktopRemote ? '$_appType,$kWindowId' : _appType;
-    var sink = rustdeskImpl.startGlobalEventStream(appType: appType);
+    var sink = rustdeskImpl.startGlobalEventStream(appType: _appType);
     sink.listen((message) {
       () async {
         try {

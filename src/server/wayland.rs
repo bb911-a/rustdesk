@@ -186,6 +186,21 @@ pub(super) async fn check_init() -> ResultType<()> {
     Ok(())
 }
 
+pub fn clear() {
+    if scrap::is_x11() {
+        return;
+    }
+
+    let mut lock = CAP_DISPLAY_INFO.write().unwrap();
+    if *lock != 0 {
+        unsafe {
+            let cap_display_info = Box::from_raw(*lock as *mut CapDisplayInfo);
+            let _ = Box::from_raw(cap_display_info.capturer.0);
+        }
+        *lock = 0;
+    }
+}
+
 pub(super) async fn get_displays() -> ResultType<(usize, Vec<DisplayInfo>)> {
     check_init().await?;
     let addr = *CAP_DISPLAY_INFO.read().unwrap();
@@ -215,7 +230,8 @@ pub(super) fn get_primary() -> ResultType<usize> {
     }
 }
 
-pub fn clear() {
+#[allow(dead_code)]
+pub(super) fn release_resource() {
     if scrap::is_x11() {
         return;
     }
