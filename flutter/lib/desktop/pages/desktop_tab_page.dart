@@ -1,14 +1,14 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_home_page.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_setting_page.dart';
 import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
-import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
-// import 'package:flutter/services.dart';
 
 import '../../common/shared_state.dart';
 
@@ -18,10 +18,9 @@ class DesktopTabPage extends StatefulWidget {
   @override
   State<DesktopTabPage> createState() => _DesktopTabPageState();
 
-  static void onAddSetting(
-      {SettingsTabKey initialPage = SettingsTabKey.general}) {
+  static void onAddSetting({int initialPage = 0}) {
     try {
-      DesktopTabController tabController = Get.find<DesktopTabController>();
+      DesktopTabController tabController = Get.find();
       tabController.add(TabInfo(
           key: kTabLabelSettingPage,
           label: kTabLabelSettingPage,
@@ -29,7 +28,7 @@ class DesktopTabPage extends StatefulWidget {
           unselectedIcon: Icons.build_outlined,
           page: DesktopSettingPage(
             key: const ValueKey(kTabLabelSettingPage),
-            initialTabkey: initialPage,
+            initialPage: initialPage,
           )));
     } catch (e) {
       debugPrintStack(label: '$e');
@@ -37,16 +36,14 @@ class DesktopTabPage extends StatefulWidget {
   }
 }
 
-class _DesktopTabPageState extends State<DesktopTabPage>
-    with WidgetsBindingObserver {
+class _DesktopTabPageState extends State<DesktopTabPage> {
   final tabController = DesktopTabController(tabType: DesktopTabType.main);
 
-  final RxBool _block = false.obs;
-  // bool mouseIn = false;
-
-  _DesktopTabPageState() {
-    RemoteCountState.init();
+  @override
+  void initState() {
+    super.initState();
     Get.put<DesktopTabController>(tabController);
+    RemoteCountState.init();
     tabController.add(TabInfo(
         key: kTabLabelHomePage,
         label: kTabLabelHomePage,
@@ -56,51 +53,12 @@ class _DesktopTabPageState extends State<DesktopTabPage>
         page: DesktopHomePage(
           key: const ValueKey(kTabLabelHomePage),
         )));
-    if (bind.isIncomingOnly()) {
-      tabController.onSelected = (key) {
-        if (key == kTabLabelHomePage) {
-          windowManager.setSize(getIncomingOnlyHomeSize());
-          setResizable(false);
-        } else {
-          windowManager.setSize(getIncomingOnlySettingsSize());
-          setResizable(true);
-        }
-      };
-    }
   }
-
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (state == AppLifecycleState.resumed) {
-      shouldBeBlocked(_block, canBeBlocked);
-    } else if (state == AppLifecycleState.inactive) {}
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    // HardwareKeyboard.instance.addHandler(_handleKeyEvent);
-    WidgetsBinding.instance.addObserver(this);
-  }
-
-  /*
-  bool _handleKeyEvent(KeyEvent event) {
-    if (!mouseIn && event is KeyDownEvent) {
-      print('key down: ${event.logicalKey}');
-      shouldBeBlocked(_block, canBeBlocked);
-    }
-    return false; // allow it to propagate
-  }
-  */
 
   @override
   void dispose() {
-    // HardwareKeyboard.instance.removeHandler(_handleKeyEvent);
-    WidgetsBinding.instance.removeObserver(this);
-    Get.delete<DesktopTabController>();
-
     super.dispose();
+    Get.delete<DesktopTabController>();
   }
 
   @override
@@ -110,23 +68,18 @@ class _DesktopTabPageState extends State<DesktopTabPage>
             backgroundColor: Theme.of(context).colorScheme.background,
             body: DesktopTab(
               controller: tabController,
-              tail: Offstage(
-                offstage: bind.isIncomingOnly() || bind.isDisableSettings(),
-                child: ActionIcon(
-                  message: 'Settings',
-                  icon: IconFont.menu,
-                  onTap: DesktopTabPage.onAddSetting,
-                  isClose: false,
-                ),
+              tail: ActionIcon(
+                message: 'Settings',
+                icon: IconFont.menu,
+                onTap: DesktopTabPage.onAddSetting,
+                isClose: false,
               ),
-              blockTab: _block,
             )));
-    return isMacOS || kUseCompatibleUiMode
+    return Platform.isMacOS || kUseCompatibleUiMode
         ? tabWidget
         : Obx(
             () => DragToResizeArea(
               resizeEdgeSize: stateGlobal.resizeEdgeSize.value,
-              enableResizeEdges: windowManagerEnableResizeEdges,
               child: tabWidget,
             ),
           );

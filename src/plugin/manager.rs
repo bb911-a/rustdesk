@@ -3,7 +3,6 @@
 
 use super::{desc::Meta as PluginMeta, ipc::InstallStatus, *};
 use crate::flutter;
-use crate::hbbs_http::create_http_client;
 use hbb_common::{allow_err, bail, log, tokio, toml};
 use serde_derive::{Deserialize, Serialize};
 use serde_json;
@@ -57,19 +56,18 @@ static PLUGIN_SOURCE_LOCAL: &str = "local";
 
 fn get_plugin_source_list() -> Vec<PluginSource> {
     // Only one source for now.
-    // vec![PluginSource {
-    //     name: "rustdesk".to_string(),
-    //     url: "https://raw.githubusercontent.com/fufesou/rustdesk-plugins/main".to_string(),
-    //     description: "".to_string(),
-    // }]
-    vec![]
+    vec![PluginSource {
+        name: "rustdesk".to_string(),
+        url: "https://raw.githubusercontent.com/fufesou/rustdesk-plugins/main".to_string(),
+        description: "".to_string(),
+    }]
 }
 
 fn get_source_plugins() -> HashMap<String, PluginInfo> {
     let mut plugins = HashMap::new();
     for source in get_plugin_source_list().into_iter() {
         let url = format!("{}/meta.toml", source.url);
-        match create_http_client().get(&url).send() {
+        match reqwest::blocking::get(&url) {
             Ok(resp) => {
                 if !resp.status().is_success() {
                     log::error!(
@@ -443,7 +441,6 @@ fn update_uninstall_id_set(set: HashSet<String>) -> ResultType<()> {
 // install process
 pub(super) mod install {
     use super::IPC_PLUGIN_POSTFIX;
-    use crate::hbbs_http::create_http_client;
     use crate::{
         ipc::{connect, Data},
         plugin::ipc::{InstallStatus, Plugin},
@@ -472,7 +469,7 @@ pub(super) mod install {
     }
 
     fn download_to_file(url: &str, file: File) -> ResultType<()> {
-        let resp = match create_http_client().get(url).send() {
+        let resp = match reqwest::blocking::get(url) {
             Ok(resp) => resp,
             Err(e) => {
                 bail!("get plugin from '{}', {}", url, e);

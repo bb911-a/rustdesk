@@ -7,27 +7,30 @@ class GestureIcons {
 
   GestureIcons._();
 
-  static const IconData iconMouse = IconData(0xe65c, fontFamily: _family);
-  static const IconData iconTabletTouch = IconData(0xe9ce, fontFamily: _family);
-  static const IconData iconGestureFDrag =
+  static const IconData icon_mouse = IconData(0xe65c, fontFamily: _family);
+  static const IconData icon_Tablet_Touch =
+      IconData(0xe9ce, fontFamily: _family);
+  static const IconData icon_gesture_f_drag =
       IconData(0xe686, fontFamily: _family);
-  static const IconData iconMobileTouch = IconData(0xe9cd, fontFamily: _family);
-  static const IconData iconGesturePress =
+  static const IconData icon_Mobile_Touch =
+      IconData(0xe9cd, fontFamily: _family);
+  static const IconData icon_gesture_press =
       IconData(0xe66c, fontFamily: _family);
-  static const IconData iconGestureTap = IconData(0xe66f, fontFamily: _family);
-  static const IconData iconGesturePinch =
+  static const IconData icon_gesture_tap =
+      IconData(0xe66f, fontFamily: _family);
+  static const IconData icon_gesture_pinch =
       IconData(0xe66a, fontFamily: _family);
-  static const IconData iconGesturePressHold =
+  static const IconData icon_gesture_press_hold =
       IconData(0xe66b, fontFamily: _family);
-  static const IconData iconGestureFDragUpDown_ =
+  static const IconData icon_gesture_f_drag_up_down_ =
       IconData(0xe685, fontFamily: _family);
-  static const IconData iconGestureFTap_ =
+  static const IconData icon_gesture_f_tap_ =
       IconData(0xe68e, fontFamily: _family);
-  static const IconData iconGestureFSwipeRight =
+  static const IconData icon_gesture_f_swipe_right =
       IconData(0xe68f, fontFamily: _family);
-  static const IconData iconGestureFdoubleTap =
+  static const IconData icon_gesture_f_double_tap =
       IconData(0xe691, fontFamily: _family);
-  static const IconData iconGestureFThreeFingers =
+  static const IconData icon_gesture_f_three_fingers =
       IconData(0xe687, fontFamily: _family);
 }
 
@@ -41,16 +44,18 @@ class GestureHelp extends StatefulWidget {
   final OnTouchModeChange onTouchModeChange;
 
   @override
-  State<StatefulWidget> createState() => _GestureHelpState(touchMode);
+  State<StatefulWidget> createState() => _GestureHelpState();
 }
 
 class _GestureHelpState extends State<GestureHelp> {
-  late int _selectedIndex;
-  late bool _touchMode;
+  var _selectedIndex;
+  var _touchMode;
 
-  _GestureHelpState(bool touchMode) {
-    _touchMode = touchMode;
+  @override
+  void initState() {
+    _touchMode = widget.touchMode;
     _selectedIndex = _touchMode ? 1 : 0;
+    super.initState();
   }
 
   @override
@@ -101,64 +106,64 @@ class _GestureHelpState extends State<GestureHelp> {
                       ? [
                           GestureInfo(
                               width,
-                              GestureIcons.iconMobileTouch,
+                              GestureIcons.icon_Mobile_Touch,
                               translate("One-Finger Tap"),
                               translate("Left Mouse")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGesturePressHold,
+                              GestureIcons.icon_gesture_press_hold,
                               translate("One-Long Tap"),
                               translate("Right Mouse")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGestureFSwipeRight,
+                              GestureIcons.icon_gesture_f_swipe_right,
                               translate("One-Finger Move"),
                               translate("Mouse Drag")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGestureFThreeFingers,
+                              GestureIcons.icon_gesture_f_three_fingers,
                               translate("Three-Finger vertically"),
                               translate("Mouse Wheel")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGestureFDrag,
+                              GestureIcons.icon_gesture_f_drag,
                               translate("Two-Finger Move"),
                               translate("Canvas Move")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGesturePinch,
+                              GestureIcons.icon_gesture_pinch,
                               translate("Pinch to Zoom"),
                               translate("Canvas Zoom")),
                         ]
                       : [
                           GestureInfo(
                               width,
-                              GestureIcons.iconMobileTouch,
+                              GestureIcons.icon_Mobile_Touch,
                               translate("One-Finger Tap"),
                               translate("Left Mouse")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGesturePressHold,
+                              GestureIcons.icon_gesture_press_hold,
                               translate("One-Long Tap"),
                               translate("Right Mouse")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGestureFSwipeRight,
+                              GestureIcons.icon_gesture_f_swipe_right,
                               translate("Double Tap & Move"),
                               translate("Mouse Drag")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGestureFThreeFingers,
+                              GestureIcons.icon_gesture_f_three_fingers,
                               translate("Three-Finger vertically"),
                               translate("Mouse Wheel")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGestureFDrag,
+                              GestureIcons.icon_gesture_f_drag,
                               translate("Two-Finger Move"),
                               translate("Canvas Move")),
                           GestureInfo(
                               width,
-                              GestureIcons.iconGesturePinch,
+                              GestureIcons.icon_gesture_pinch,
                               translate("Pinch to Zoom"),
                               translate("Canvas Zoom")),
                         ],

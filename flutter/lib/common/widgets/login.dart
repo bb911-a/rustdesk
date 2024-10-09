@@ -14,7 +14,6 @@ import './dialog.dart';
 
 const kOpSvgList = [
   'github',
-  'gitlab',
   'google',
   'apple',
   'okta',
@@ -73,11 +72,6 @@ class ButtonOP extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final opLabel = {
-          'github': 'GitHub',
-          'gitlab': 'GitLab'
-        }[op.toLowerCase()] ??
-        toCapitalized(op);
     return Row(children: [
       Container(
         height: height,
@@ -103,7 +97,8 @@ class ButtonOP extends StatelessWidget {
                   child: FittedBox(
                     fit: BoxFit.scaleDown,
                     child: Center(
-                        child: Text('${translate("Continue with")} $opLabel')),
+                        child: Text(
+                            '${translate("Continue with")} ${op.toLowerCase() == "github" ? "GitHub" : toCapitalized(op)}')),
                   ),
                 ),
               ],
@@ -141,6 +136,11 @@ class _WidgetOPState extends State<WidgetOP> {
   String _stateMsg = '';
   String _failedMsg = '';
   String _url = '';
+
+  @override
+  void initState() {
+    super.initState();
+  }
 
   @override
   void dispose() {
@@ -352,7 +352,6 @@ class LoginWidgetUserPass extends StatelessWidget {
             PasswordWidget(
               controller: pass,
               autoFocus: false,
-              reRequestFocus: true,
               errorText: passMsg,
             ),
             // NOT use Offstage to wrap LinearProgressIndicator
@@ -385,7 +384,8 @@ class LoginWidgetUserPass extends StatelessWidget {
 
 const kAuthReqTypeOidc = 'oidc/';
 
-// call this directly
+/// common login dialog for desktop
+/// call this directly
 Future<bool?> loginDialog() async {
   var username =
       TextEditingController(text: UserModel.getLocalUserInfo()?['name'] ?? '');
@@ -421,55 +421,6 @@ Future<bool?> loginDialog() async {
       close(false);
     }
 
-    handleLoginResponse(LoginResponse resp, bool storeIfAccessToken,
-        void Function([dynamic])? close) async {
-      switch (resp.type) {
-        case HttpType.kAuthResTypeToken:
-          if (resp.access_token != null) {
-            if (storeIfAccessToken) {
-              await bind.mainSetLocalOption(
-                  key: 'access_token', value: resp.access_token!);
-              await bind.mainSetLocalOption(
-                  key: 'user_info', value: jsonEncode(resp.user ?? {}));
-            }
-            if (close != null) {
-              close(true);
-            }
-            return;
-          }
-          break;
-        case HttpType.kAuthResTypeEmailCheck:
-          bool? isEmailVerification;
-          if (resp.tfa_type == null ||
-              resp.tfa_type == HttpType.kAuthResTypeEmailCheck) {
-            isEmailVerification = true;
-          } else if (resp.tfa_type == HttpType.kAuthResTypeTfaCheck) {
-            isEmailVerification = false;
-          } else {
-            passwordMsg = "Failed, bad tfa type from server";
-          }
-          if (isEmailVerification != null) {
-            if (isMobile) {
-              if (close != null) close(null);
-              verificationCodeDialog(
-                  resp.user, resp.secret, isEmailVerification);
-            } else {
-              setState(() => isInProgress = false);
-              final res = await verificationCodeDialog(
-                  resp.user, resp.secret, isEmailVerification);
-              if (res == true) {
-                if (close != null) close(false);
-                return;
-              }
-            }
-          }
-          break;
-        default:
-          passwordMsg = "Failed, bad response from server";
-          break;
-      }
-    }
-
     onLogin() async {
       // validate
       if (username.text.isEmpty) {
@@ -490,7 +441,35 @@ Future<bool?> loginDialog() async {
             uuid: await bind.mainGetUuid(),
             autoLogin: true,
             type: HttpType.kAuthReqTypeAccount));
-        await handleLoginResponse(resp, true, close);
+
+        switch (resp.type) {
+          case HttpType.kAuthResTypeToken:
+            if (resp.access_token != null) {
+              await bind.mainSetLocalOption(
+                  key: 'access_token', value: resp.access_token!);
+              await bind.mainSetLocalOption(
+                  key: 'user_info', value: jsonEncode(resp.user ?? {}));
+              close(true);
+              return;
+            }
+            break;
+          case HttpType.kAuthResTypeEmailCheck:
+            if (isMobile) {
+              close(true);
+              verificationCodeDialog(resp.user);
+            } else {
+              setState(() => isInProgress = false);
+              final res = await verificationCodeDialog(resp.user);
+              if (res == true) {
+                close(true);
+                return;
+              }
+            }
+            break;
+          default:
+            passwordMsg = "Failed, bad response from server";
+            break;
+        }
       } on RequestException catch (err) {
         passwordMsg = translate(err.cause);
       } catch (err) {
@@ -521,21 +500,15 @@ Future<bool?> loginDialog() async {
                       .map((e) => ConfigOP(op: e['name'], icon: e['icon']))
                       .toList(),
                   curOP: curOP,
-                  cbLogin: (Map<String, dynamic> authBody) async {
-                    LoginResponse? resp;
+                  cbLogin: (Map<String, dynamic> authBody) {
                     try {
                       // access_token is already stored in the rust side.
-                      resp =
-                          gFFI.userModel.getLoginResponseFromAuthBody(authBody);
+                      gFFI.userModel.getLoginResponseFromAuthBody(authBody);
                     } catch (e) {
                       debugPrint(
                           'Failed to parse oidc login body: "$authBody"');
                     }
                     close(true);
-
-                    if (resp != null) {
-                      handleLoginResponse(resp, false, null);
-                    }
                   },
                 ),
               ],
@@ -594,7 +567,6 @@ Future<bool?> loginDialog() async {
         ],
       ),
       onCancel: onDialogCancel,
-      onSubmit: onLogin,
     );
   });
 
@@ -605,23 +577,37 @@ Future<bool?> loginDialog() async {
   return res;
 }
 
-Future<bool?> verificationCodeDialog(
-    UserPayload? user, String? secret, bool isEmailVerification) async {
+Future<bool?> verificationCodeDialog(UserPayload? user) async {
   var autoLogin = true;
   var isInProgress = false;
   String? errorText;
 
   final code = TextEditingController();
+  final focusNode = FocusNode()..requestFocus();
+  Timer(Duration(milliseconds: 100), () => focusNode..requestFocus());
 
   final res = await gFFI.dialogManager.show<bool>((setState, close, context) {
+    bool validate() {
+      return code.text.length >= 6;
+    }
+
+    code.addListener(() {
+      if (errorText != null) {
+        setState(() => errorText = null);
+      }
+    });
+
     void onVerify() async {
+      if (!validate()) {
+        setState(
+            () => errorText = translate('Too short, at least 6 characters.'));
+        return;
+      }
       setState(() => isInProgress = true);
 
       try {
         final resp = await gFFI.userModel.login(LoginRequest(
             verificationCode: code.text,
-            tfaCode: isEmailVerification ? null : code.text,
-            secret: secret,
             username: user?.name,
             id: await bind.mainGetMyId(),
             uuid: await bind.mainGetUuid(),
@@ -650,37 +636,27 @@ Future<bool?> verificationCodeDialog(
       setState(() => isInProgress = false);
     }
 
-    final codeField = isEmailVerification
-        ? DialogEmailCodeField(
-            controller: code,
-            errorText: errorText,
-            readyCallback: onVerify,
-            onChanged: () => errorText = null,
-          )
-        : Dialog2FaField(
-            controller: code,
-            errorText: errorText,
-            readyCallback: onVerify,
-            onChanged: () => errorText = null,
-          );
-
-    getOnSubmit() => codeField.isReady ? onVerify : null;
-
     return CustomAlertDialog(
         title: Text(translate("Verification code")),
         contentBoxConstraints: BoxConstraints(maxWidth: 300),
         content: Column(
           children: [
             Offstage(
-                offstage: !isEmailVerification || user?.email == null,
+                offstage: user?.email == null,
                 child: TextField(
                   decoration: InputDecoration(
                       labelText: "Email", prefixIcon: Icon(Icons.email)),
                   readOnly: true,
                   controller: TextEditingController(text: user?.email),
                 )),
-            isEmailVerification ? const SizedBox(height: 8) : const Offstage(),
-            codeField,
+            const SizedBox(height: 8),
+            DialogTextField(
+              title: '${translate("Verification code")}:',
+              controller: code,
+              errorText: errorText,
+              focusNode: focusNode,
+              helperText: translate('verification_tip'),
+            ),
             /*
             CheckboxListTile(
               contentPadding: const EdgeInsets.all(0),
@@ -701,17 +677,12 @@ Future<bool?> verificationCodeDialog(
           ],
         ),
         onCancel: close,
-        onSubmit: getOnSubmit(),
+        onSubmit: onVerify,
         actions: [
           dialogButton("Cancel", onPressed: close, isOutline: true),
-          dialogButton("Verify", onPressed: getOnSubmit()),
+          dialogButton("Verify", onPressed: onVerify),
         ]);
   });
-  // For verification code, desktop update other models in login dialog, mobile need to close login dialog first,
-  // otherwise the soft keyboard will jump out on each key press, so mobile update in verification code dialog.
-  if (isMobile && res == true) {
-    await UserModel.updateOtherModels();
-  }
 
   return res;
 }

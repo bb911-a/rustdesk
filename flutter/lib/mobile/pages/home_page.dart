@@ -1,12 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/common/widgets/overlay.dart';
 import 'package:flutter_hbb/mobile/pages/server_page.dart';
 import 'package:flutter_hbb/mobile/pages/settings_page.dart';
-import 'package:flutter_hbb/web/settings_page.dart';
 import 'package:get/get.dart';
 import '../../common.dart';
 import '../../common/widgets/chat_page.dart';
-import '../../models/platform_model.dart';
-import '../../models/state_model.dart';
 import 'connection_page.dart';
 
 abstract class PageShape extends Widget {
@@ -16,22 +14,19 @@ abstract class PageShape extends Widget {
 }
 
 class HomePage extends StatefulWidget {
-  static final homeKey = GlobalKey<HomePageState>();
+  static final homeKey = GlobalKey<_HomePageState>();
 
   HomePage() : super(key: homeKey);
 
   @override
-  HomePageState createState() => HomePageState();
+  _HomePageState createState() => _HomePageState();
 }
 
-class HomePageState extends State<HomePage> {
+class _HomePageState extends State<HomePage> {
   var _selectedIndex = 0;
   int get selectedIndex => _selectedIndex;
   final List<PageShape> _pages = [];
-  int _chatPageTabIndex = -1;
-  bool get isChatPageCurrentTab => isAndroid
-      ? _selectedIndex == _chatPageTabIndex
-      : false; // change this when ios have chat page
+  final _blockableOverlayState = BlockableOverlayState();
 
   void refreshPages() {
     setState(() {
@@ -43,17 +38,13 @@ class HomePageState extends State<HomePage> {
   void initState() {
     super.initState();
     initPages();
+    _blockableOverlayState.applyFfi(gFFI);
   }
 
   void initPages() {
     _pages.clear();
-    if (!bind.isIncomingOnly()) {
-      _pages.add(ConnectionPage(
-        appBarActions: [],
-      ));
-    }
-    if (isAndroid && !bind.isOutgoingOnly()) {
-      _chatPageTabIndex = _pages.length;
+    _pages.add(ConnectionPage());
+    if (isAndroid) {
       _pages.addAll([ChatPage(type: ChatPageType.mobileMain), ServerPage()]);
     }
     _pages.add(SettingsPage());
@@ -91,15 +82,13 @@ class HomePageState extends State<HomePage> {
             unselectedItemColor: MyTheme.darkGray,
             onTap: (index) => setState(() {
               // close chat overlay when go chat page
-              if (_selectedIndex != index) {
-                _selectedIndex = index;
-                if (isChatPageCurrentTab) {
-                  gFFI.chatModel.hideChatIconOverlay();
-                  gFFI.chatModel.hideChatWindowOverlay();
-                  gFFI.chatModel.mobileClearClientUnread(
-                      gFFI.chatModel.currentKey.connId);
-                }
+              if (index == 1 && _selectedIndex != index) {
+                gFFI.chatModel.hideChatIconOverlay();
+                gFFI.chatModel.hideChatWindowOverlay();
+                gFFI.chatModel
+                    .mobileClearClientUnread(gFFI.chatModel.currentKey.connId);
               }
+              _selectedIndex = index;
             }),
           ),
           body: _pages.elementAt(_selectedIndex),
@@ -109,7 +98,7 @@ class HomePageState extends State<HomePage> {
   Widget appTitle() {
     final currentUser = gFFI.chatModel.currentUser;
     final currentKey = gFFI.chatModel.currentKey;
-    if (isChatPageCurrentTab &&
+    if (_selectedIndex == 1 &&
         currentUser != null &&
         currentKey.peerId.isNotEmpty) {
       final connected =
@@ -150,22 +139,20 @@ class HomePageState extends State<HomePage> {
         ],
       );
     }
-    return Text(bind.mainGetAppNameSync());
+    return Text("RustDesk");
   }
 }
 
 class WebHomePage extends StatelessWidget {
-  final connectionPage =
-      ConnectionPage(appBarActions: <Widget>[const WebSettingsPage()]);
+  final connectionPage = ConnectionPage();
 
   @override
   Widget build(BuildContext context) {
-    stateGlobal.isInMainPage = true;
     return Scaffold(
       // backgroundColor: MyTheme.grayBg,
       appBar: AppBar(
         centerTitle: true,
-        title: Text(bind.mainGetAppNameSync()),
+        title: Text("RustDesk" + (isWeb ? " (Beta) " : "")),
         actions: connectionPage.appBarActions,
       ),
       body: connectionPage,

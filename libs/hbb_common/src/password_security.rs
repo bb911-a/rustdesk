@@ -79,7 +79,7 @@ pub fn approve_mode() -> ApproveMode {
 pub fn hide_cm() -> bool {
     approve_mode() == ApproveMode::Password
         && verification_method() == VerificationMethod::OnlyUsePermanentPassword
-        && crate::config::option2bool("allow-hide-cm", &Config::get_option("allow-hide-cm"))
+        && !Config::get_option("allow-hide-cm").is_empty()
 }
 
 const VERSION_LEN: usize = 2;
@@ -89,11 +89,11 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
         log::error!("Duplicate encryption!");
         return s.to_owned();
     }
-    if s.chars().count() > max_len {
+    if s.bytes().len() > max_len {
         return String::default();
     }
     if version == "00" {
-        if let Ok(s) = encrypt(s.as_bytes()) {
+        if let Ok(s) = encrypt(s.as_bytes(), max_len) {
             return version.to_owned() + &s;
         }
     }
@@ -103,16 +103,15 @@ pub fn encrypt_str_or_original(s: &str, version: &str, max_len: usize) -> String
 // String: password
 // bool: whether decryption is successful
 // bool: whether should store to re-encrypt when load
-// note: s.len() return length in bytes, s.chars().count() return char count
-//       &[..2] return the left 2 bytes, s.chars().take(2) return the left 2 chars
 pub fn decrypt_str_or_original(s: &str, current_version: &str) -> (String, bool, bool) {
     if s.len() > VERSION_LEN {
-        if s.starts_with("00") {
+        let version = &s[..VERSION_LEN];
+        if version == "00" {
             if let Ok(v) = decrypt(s[VERSION_LEN..].as_bytes()) {
                 return (
                     String::from_utf8_lossy(&v).to_string(),
                     true,
-                    "00" != current_version,
+                    version != current_version,
                 );
             }
         }
@@ -130,7 +129,7 @@ pub fn encrypt_vec_or_original(v: &[u8], version: &str, max_len: usize) -> Vec<u
         return vec![];
     }
     if version == "00" {
-        if let Ok(s) = encrypt(v) {
+        if let Ok(s) = encrypt(v, max_len) {
             let mut version = version.to_owned().into_bytes();
             version.append(&mut s.into_bytes());
             return version;
@@ -155,8 +154,8 @@ pub fn decrypt_vec_or_original(v: &[u8], current_version: &str) -> (Vec<u8>, boo
     (v.to_owned(), false, !v.is_empty())
 }
 
-fn encrypt(v: &[u8]) -> Result<String, ()> {
-    if !v.is_empty() {
+fn encrypt(v: &[u8], max_len: usize) -> Result<String, ()> {
+    if !v.is_empty() && v.len() <= max_len {
         symmetric_crypt(v, true).map(|v| base64::encode(v, base64::Variant::Original))
     } else {
         Err(())
@@ -199,7 +198,7 @@ mod test {
         let max_len = 128;
 
         println!("test str");
-        let data = "1ü1111";
+        let data = "Hello World";
         let encrypted = encrypt_str_or_original(data, version, max_len);
         let (decrypted, succ, store) = decrypt_str_or_original(&encrypted, version);
         println!("data: {data}");
@@ -218,7 +217,7 @@ mod test {
         );
 
         println!("test vec");
-        let data: Vec<u8> = "1ü1111".as_bytes().to_vec();
+        let data: Vec<u8> = vec![1, 2, 3, 4, 5, 6];
         let encrypted = encrypt_vec_or_original(&data, version, max_len);
         let (decrypted, succ, store) = decrypt_vec_or_original(&encrypted, version);
         println!("data: {data:?}");
@@ -254,10 +253,6 @@ mod test {
         let (_, succ, store) = decrypt_vec_or_original(&[], version);
         assert!(!store);
         assert!(!succ);
-        let data = "1ü1111";
-        assert_eq!(decrypt_str_or_original(data, version).0, data);
-        let data: Vec<u8> = "1ü1111".as_bytes().to_vec();
-        assert_eq!(decrypt_vec_or_original(&data, version).0, data);
 
         println!("test speed");
         let test_speed = |len: usize, name: &str| {

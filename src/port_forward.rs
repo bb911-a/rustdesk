@@ -75,7 +75,7 @@ pub async fn listen(
                         let interface = interface.clone();
                         tokio::spawn(async move {
                             if let Err(err) = run_forward(forward, stream).await {
-                                interface.msgbox("error", "Error", &err.to_string(), "");
+                               interface.msgbox("error", "Error", &err.to_string(), "");
                             }
                             log::info!("connection from {:?} closed", addr);
                        });
@@ -118,14 +118,12 @@ async fn connect_and_login(
     } else {
         ConnType::PORT_FORWARD
     };
-    let ((mut stream, direct, _pk), (feedback, rendezvous_server)) =
+    let (mut stream, direct, _pk) =
         Client::start(id, key, token, conn_type, interface.clone()).await?;
     interface.update_direct(Some(direct));
+    let mut interface = interface;
     let mut buffer = Vec::new();
     let mut received = false;
-
-    let _keep_it = hc_connection(feedback, rendezvous_server, token).await;
-
     loop {
         tokio::select! {
             res = timeout(READ_TIMEOUT, stream.next()) => match res {
@@ -144,12 +142,11 @@ async fn connect_and_login(
                         }
                         Some(message::Union::LoginResponse(lr)) => match lr.union {
                             Some(login_response::Union::Error(err)) => {
-                                if !interface.handle_login_error(&err) {
-                                    return Ok(None);
-                                }
+                                interface.handle_login_error(&err);
+                                return Ok(None);
                             }
                             Some(login_response::Union::PeerInfo(pi)) => {
-                                interface.handle_peer_info(pi);
+                                interface.handle_peer_info(pi, false);
                                 break;
                             }
                             _ => {}
@@ -171,9 +168,6 @@ async fn connect_and_login(
                 match d {
                     Some(Data::Login((os_username, os_password, password, remember))) => {
                         interface.handle_login_from_ui(os_username, os_password, password, remember, &mut stream).await;
-                    }
-                    Some(Data::Message(msg)) => {
-                        allow_err!(stream.send(&msg).await);
                     }
                     _ => {}
                 }

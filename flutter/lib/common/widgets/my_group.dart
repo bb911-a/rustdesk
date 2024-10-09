@@ -1,10 +1,7 @@
-import 'dart:math';
-
 import 'package:flutter/material.dart';
 import 'package:flutter_hbb/common/hbbs/hbbs.dart';
 import 'package:flutter_hbb/common/widgets/login.dart';
 import 'package:flutter_hbb/common/widgets/peers_view.dart';
-import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 
 import '../../common.dart';
@@ -25,36 +22,57 @@ class _MyGroupState extends State<MyGroup> {
   static TextEditingController searchUserController = TextEditingController();
 
   @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Obx(() {
-      if (!gFFI.userModel.isLogin) {
+      // use username to be same with ab
+      if (gFFI.userModel.userName.value.isEmpty) {
         return Center(
             child: ElevatedButton(
                 onPressed: loginDialog, child: Text(translate("Login"))));
-      } else if (gFFI.userModel.networkError.isNotEmpty) {
-        return netWorkErrorWidget();
-      } else if (gFFI.groupModel.groupLoading.value && gFFI.groupModel.emtpy) {
+      }
+      return buildBody(context);
+    });
+  }
+
+  Widget buildBody(BuildContext context) {
+    return Obx(() {
+      if (gFFI.groupModel.groupLoading.value) {
         return const Center(
           child: CircularProgressIndicator(),
         );
       }
-      return Column(
-        children: [
-          buildErrorBanner(context,
-              loading: gFFI.groupModel.groupLoading,
-              err: gFFI.groupModel.groupLoadError,
-              retry: null,
-              close: () => gFFI.groupModel.groupLoadError.value = ''),
-          Expanded(
-              child: Obx(() => stateGlobal.isPortrait.isTrue
-                  ? _buildPortrait()
-                  : _buildLandscape())),
-        ],
-      );
+      if (gFFI.groupModel.groupLoadError.isNotEmpty) {
+        return _buildShowError(gFFI.groupModel.groupLoadError.value);
+      }
+      if (isDesktop) {
+        return _buildDesktop();
+      } else {
+        return _buildMobile();
+      }
     });
   }
 
-  Widget _buildLandscape() {
+  Widget _buildShowError(String error) {
+    return Center(
+        child: Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        Text(translate(error)),
+        TextButton(
+            onPressed: () {
+              gFFI.groupModel.pull();
+            },
+            child: Text(translate("Retry")))
+      ],
+    ));
+  }
+
+  Widget _buildDesktop() {
     return Row(
       children: [
         Container(
@@ -82,15 +100,16 @@ class _MyGroupState extends State<MyGroup> {
         Expanded(
           child: Align(
               alignment: Alignment.topLeft,
-              child: MyGroupPeerView(
-                menuPadding: widget.menuPadding,
-              )),
+              child: Obx(() => MyGroupPeerView(
+                  menuPadding: widget.menuPadding,
+                  // ignore: invalid_use_of_protected_member
+                  initPeers: gFFI.groupModel.peersShow.value))),
         )
       ],
     );
   }
 
-  Widget _buildPortrait() {
+  Widget _buildMobile() {
     return Column(
       children: [
         Container(
@@ -114,16 +133,16 @@ class _MyGroupState extends State<MyGroup> {
         Expanded(
           child: Align(
               alignment: Alignment.topLeft,
-              child: MyGroupPeerView(
-                menuPadding: widget.menuPadding,
-              )),
+              child: Obx(() => MyGroupPeerView(
+                  menuPadding: widget.menuPadding,
+                  // ignore: invalid_use_of_protected_member
+                  initPeers: gFFI.groupModel.peersShow.value))),
         )
       ],
     );
   }
 
   Widget _buildLeftHeader() {
-    final fontSize = 14.0;
     return Row(
       children: [
         Expanded(
@@ -132,16 +151,16 @@ class _MyGroupState extends State<MyGroup> {
           onChanged: (value) {
             searchUserText.value = value;
           },
-          textAlignVertical: TextAlignVertical.center,
-          style: TextStyle(fontSize: fontSize),
           decoration: InputDecoration(
             filled: false,
             prefixIcon: Icon(
               Icons.search_rounded,
               color: Theme.of(context).hintColor,
-            ).paddingOnly(top: 2),
+            ),
+            contentPadding: const EdgeInsets.symmetric(vertical: 10),
             hintText: translate("Search"),
-            hintStyle: TextStyle(fontSize: fontSize),
+            hintStyle:
+                TextStyle(fontSize: 14, color: Theme.of(context).hintColor),
             border: InputBorder.none,
             isDense: true,
           ),
@@ -152,22 +171,16 @@ class _MyGroupState extends State<MyGroup> {
 
   Widget _buildUserContacts() {
     return Obx(() {
-      final items = gFFI.groupModel.users.where((p0) {
-        if (searchUserText.isNotEmpty) {
-          return p0.name
-              .toLowerCase()
-              .contains(searchUserText.value.toLowerCase());
-        }
-        return true;
-      }).toList();
-      listView(bool isPortrait) => ListView.builder(
-          shrinkWrap: isPortrait,
-          itemCount: items.length,
-          itemBuilder: (context, index) => _buildUserItem(items[index]));
-      var maxHeight = max(MediaQuery.of(context).size.height / 6, 100.0);
-      return Obx(() => stateGlobal.isPortrait.isFalse
-          ? listView(false)
-          : LimitedBox(maxHeight: maxHeight, child: listView(true)));
+      return Column(
+          children: gFFI.groupModel.users
+              .where((p0) {
+                if (searchUserText.isNotEmpty) {
+                  return p0.name.contains(searchUserText.value);
+                }
+                return true;
+              })
+              .map((e) => _buildUserItem(e))
+              .toList());
     });
   }
 
@@ -182,8 +195,6 @@ class _MyGroupState extends State<MyGroup> {
     }, child: Obx(
       () {
         bool selected = selectedUser.value == username;
-        final isMe = username == gFFI.userModel.userName.value;
-        final colorMe = MyTheme.color(context).me!;
         return Container(
           decoration: BoxDecoration(
             color: selected ? MyTheme.color(context).highlight : null,
@@ -195,42 +206,9 @@ class _MyGroupState extends State<MyGroup> {
           child: Container(
             child: Row(
               children: [
-                Container(
-                  width: 20,
-                  height: 20,
-                  decoration: BoxDecoration(
-                    color: str2color(username, 0xAF),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Align(
-                    alignment: Alignment.center,
-                    child: Center(
-                      child: Text(
-                        username.characters.first.toUpperCase(),
-                        style: TextStyle(color: Colors.white),
-                        textAlign: TextAlign.center,
-                      ),
-                    ),
-                  ),
-                ).marginOnly(right: 4),
-                if (isMe) Flexible(child: Text(username)),
-                if (isMe)
-                  Flexible(
-                    child: Container(
-                      margin: EdgeInsets.only(left: 5),
-                      padding: EdgeInsets.symmetric(horizontal: 3, vertical: 1),
-                      decoration: BoxDecoration(
-                          color: colorMe.withAlpha(20),
-                          borderRadius: BorderRadius.all(Radius.circular(2)),
-                          border: Border.all(color: colorMe.withAlpha(100))),
-                      child: Text(
-                        translate('Me'),
-                        style: TextStyle(
-                            color: colorMe.withAlpha(200), fontSize: 12),
-                      ),
-                    ),
-                  ),
-                if (!isMe) Expanded(child: Text(username)),
+                Icon(Icons.person_rounded, color: Colors.grey, size: 16)
+                    .marginOnly(right: 4),
+                Expanded(child: Text(username)),
               ],
             ).paddingSymmetric(vertical: 4),
           ),

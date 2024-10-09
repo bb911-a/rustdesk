@@ -35,23 +35,11 @@ impl Display {
     }
 
     pub fn width(self) -> usize {
-        let w = unsafe { CGDisplayPixelsWide(self.0) };
-        let s = self.scale();
-        if s > 1.0 {
-            ((w as f64) * s).round() as usize
-        } else {
-            w
-        }
+        unsafe { CGDisplayPixelsWide(self.0) }
     }
 
     pub fn height(self) -> usize {
-        let h = unsafe { CGDisplayPixelsHigh(self.0) };
-        let s = self.scale();
-        if s > 1.0 {
-            ((h as f64) * s).round() as usize
-        } else {
-            h
-        }
+        unsafe { CGDisplayPixelsHigh(self.0) }
     }
 
     pub fn is_builtin(self) -> bool {
@@ -68,17 +56,6 @@ impl Display {
 
     pub fn is_online(self) -> bool {
         unsafe { CGDisplayIsOnline(self.0) != 0 }
-    }
-
-    pub fn scale(self) -> f64 {
-        let s = unsafe { BackingScaleFactor(self.0) as _ };
-        if s > 1. {
-            let enable_retina = super::ENABLE_RETINA.lock().unwrap().clone();
-            if enable_retina {
-                return s;
-            }
-        }
-        1.
     }
 
     pub fn bounds(self) -> CGRect {

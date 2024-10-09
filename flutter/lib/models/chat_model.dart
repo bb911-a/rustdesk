@@ -10,6 +10,7 @@ import 'package:flutter_hbb/desktop/widgets/tabbar_widget.dart';
 import 'package:flutter_hbb/mobile/pages/home_page.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:get/get_rx/src/rx_types/rx_types.dart';
 import 'package:get/get.dart';
 import 'package:uuid/uuid.dart';
 import 'package:window_manager/window_manager.dart';
@@ -62,7 +63,7 @@ class ChatModel with ChangeNotifier {
   bool isConnManager = false;
 
   RxBool isWindowFocus = true.obs;
-  BlockableOverlayState _blockableOverlayState = BlockableOverlayState();
+  BlockableOverlayState? _blockableOverlayState;
   final Rx<VoiceCallStatus> _voiceCallStatus = Rx(VoiceCallStatus.notStarted);
 
   Rx<VoiceCallStatus> get voiceCallStatus => _voiceCallStatus;
@@ -70,13 +71,6 @@ class ChatModel with ChangeNotifier {
   TextEditingController textController = TextEditingController();
   RxInt mobileUnreadSum = 0.obs;
   MessageKey? latestReceivedKey;
-
-  Offset chatWindowPosition = Offset(20, 80);
-
-  void setChatWindowPosition(Offset position) {
-    chatWindowPosition = position;
-    notifyListeners();
-  }
 
   @override
   void dispose() {
@@ -92,18 +86,18 @@ class ChatModel with ChangeNotifier {
   late final Map<MessageKey, MessageBody> _messages = {};
 
   MessageKey _currentKey = MessageKey('', -2); // -2 is invalid value
-  late bool _isShowCMSidePage = false;
+  late bool _isShowCMChatPage = false;
 
   Map<MessageKey, MessageBody> get messages => _messages;
 
   MessageKey get currentKey => _currentKey;
 
-  bool get isShowCMSidePage => _isShowCMSidePage;
+  bool get isShowCMChatPage => _isShowCMChatPage;
 
   void setOverlayState(BlockableOverlayState blockableOverlayState) {
     _blockableOverlayState = blockableOverlayState;
 
-    _blockableOverlayState.addMiddleBlockedListener((v) {
+    _blockableOverlayState!.addMiddleBlockedListener((v) {
       if (!v) {
         isWindowFocus.value = false;
         if (isWindowFocus.value) {
@@ -160,7 +154,7 @@ class ChatModel with ChangeNotifier {
       }
     }
 
-    final overlayState = _blockableOverlayState.state;
+    final overlayState = _blockableOverlayState?.state;
     if (overlayState == null) return;
 
     final overlay = OverlayEntry(builder: (context) {
@@ -197,9 +191,9 @@ class ChatModel with ChangeNotifier {
   showChatWindowOverlay({Offset? chatInitPos}) {
     if (chatWindowOverlayEntry != null) return;
     isWindowFocus.value = true;
-    _blockableOverlayState.setMiddleBlocked(true);
+    _blockableOverlayState?.setMiddleBlocked(true);
 
-    final overlayState = _blockableOverlayState.state;
+    final overlayState = _blockableOverlayState?.state;
     if (overlayState == null) return;
     if (isMobile &&
         !gFFI.chatModel.currentKey.isOut && // not in remote page
@@ -212,11 +206,11 @@ class ChatModel with ChangeNotifier {
           onPointerDown: (_) {
             if (!isWindowFocus.value) {
               isWindowFocus.value = true;
-              _blockableOverlayState.setMiddleBlocked(true);
+              _blockableOverlayState?.setMiddleBlocked(true);
             }
           },
           child: DraggableChatWindow(
-              position: chatInitPos ?? chatWindowPosition,
+              position: chatInitPos ?? Offset(20, 80),
               width: 250,
               height: 350,
               chatModel: this));
@@ -228,21 +222,20 @@ class ChatModel with ChangeNotifier {
 
   hideChatWindowOverlay() {
     if (chatWindowOverlayEntry != null) {
-      _blockableOverlayState.setMiddleBlocked(false);
+      _blockableOverlayState?.setMiddleBlocked(false);
       chatWindowOverlayEntry!.remove();
       chatWindowOverlayEntry = null;
       return;
     }
   }
 
-  _isChatOverlayHide() =>
-      ((!(isDesktop || isWebDesktop) && chatIconOverlayEntry == null) ||
-          chatWindowOverlayEntry == null);
+  _isChatOverlayHide() => ((!isDesktop && chatIconOverlayEntry == null) ||
+      chatWindowOverlayEntry == null);
 
   toggleChatOverlay({Offset? chatInitPos}) {
     if (_isChatOverlayHide()) {
       gFFI.invokeMethod("enable_soft_keyboard", true);
-      if (!(isDesktop || isWebDesktop)) {
+      if (!isDesktop) {
         showChatIconOverlay();
       }
       showChatWindowOverlay(chatInitPos: chatInitPos);
@@ -262,7 +255,7 @@ class ChatModel with ChangeNotifier {
   showChatPage(MessageKey key) async {
     if (isDesktop) {
       if (isConnManager) {
-        if (!_isShowCMSidePage) {
+        if (!_isShowCMChatPage) {
           await toggleCMChatPage(key);
         }
       } else {
@@ -283,39 +276,20 @@ class ChatModel with ChangeNotifier {
     if (gFFI.chatModel.currentKey != key) {
       gFFI.chatModel.changeCurrentKey(key);
     }
-    await toggleCMSidePage();
-  }
-
-  toggleCMFilePage() async {
-    await toggleCMSidePage();
-  }
-
-  var _togglingCMSidePage = false; // protect order for await
-  toggleCMSidePage() async {
-    if (_togglingCMSidePage) return false;
-    _togglingCMSidePage = true;
-    if (_isShowCMSidePage) {
-      _isShowCMSidePage = !_isShowCMSidePage;
+    if (_isShowCMChatPage) {
+      _isShowCMChatPage = !_isShowCMChatPage;
       notifyListeners();
       await windowManager.show();
       await windowManager.setSizeAlignment(
           kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
     } else {
-      final currentSelectedTab =
-          gFFI.serverModel.tabController.state.value.selectedTabInfo;
-      final client = parent.target?.serverModel.clients.firstWhereOrNull(
-          (client) => client.id.toString() == currentSelectedTab.key);
-      if (client != null) {
-        client.unreadChatMessageCount.value = 0;
-      }
       requestChatInputFocus();
       await windowManager.show();
       await windowManager.setSizeAlignment(
           kConnectionManagerWindowSizeOpenChat, Alignment.topRight);
-      _isShowCMSidePage = !_isShowCMSidePage;
+      _isShowCMChatPage = !_isShowCMChatPage;
       notifyListeners();
     }
-    _togglingCMSidePage = false;
   }
 
   changeCurrentKey(MessageKey key) {
@@ -422,7 +396,7 @@ class ChatModel with ChangeNotifier {
           parent.target?.serverModel.jumpTo(id);
         }
       } else {
-        if (HomePage.homeKey.currentState?.isChatPageCurrentTab != true ||
+        if (HomePage.homeKey.currentState?.selectedIndex != 1 ||
             _currentKey != messagekey) {
           client.unreadChatMessageCount.value += 1;
           mobileUpdateUnreadSum();
@@ -528,18 +502,10 @@ class ChatModel with ChangeNotifier {
 
   void onVoiceCallStarted() {
     _voiceCallStatus.value = VoiceCallStatus.connected;
-    if (isAndroid) {
-      parent.target?.invokeMethod("on_voice_call_started");
-    }
   }
 
   void onVoiceCallClosed(String reason) {
     _voiceCallStatus.value = VoiceCallStatus.notStarted;
-    if (isAndroid) {
-      // We can always invoke "on_voice_call_closed"
-      // no matter if the `_voiceCallStatus` was `VoiceCallStatus.notStarted` or not.
-      parent.target?.invokeMethod("on_voice_call_closed");
-    }
   }
 
   void onVoiceCallIncoming() {

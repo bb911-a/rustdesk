@@ -22,49 +22,18 @@ pub const NAME: &'static str = "audio";
 pub const AUDIO_DATA_SIZE_U8: usize = 960 * 4; // 10ms in 48000 stereo
 static RESTARTING: AtomicBool = AtomicBool::new(false);
 
-lazy_static::lazy_static! {
-    static ref VOICE_CALL_INPUT_DEVICE: Arc::<Mutex::<Option<String>>> = Default::default();
-}
-
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub fn new() -> GenericService {
-    let svc = EmptyExtraFieldService::new(NAME.to_owned(), true);
-    GenericService::repeat::<cpal_impl::State, _, _>(&svc.clone(), 33, cpal_impl::run);
-    svc.sp
+    let sp = GenericService::new(NAME, true);
+    sp.repeat::<cpal_impl::State, _>(33, cpal_impl::run);
+    sp
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn new() -> GenericService {
-    let svc = EmptyExtraFieldService::new(NAME.to_owned(), true);
-    GenericService::run(&svc.clone(), pa_impl::run);
-    svc.sp
-}
-
-#[inline]
-pub fn get_voice_call_input_device() -> Option<String> {
-    VOICE_CALL_INPUT_DEVICE.lock().unwrap().clone()
-}
-
-#[inline]
-pub fn set_voice_call_input_device(device: Option<String>, set_if_present: bool) {
-    if !set_if_present && VOICE_CALL_INPUT_DEVICE.lock().unwrap().is_some() {
-        return;
-    }
-
-    if *VOICE_CALL_INPUT_DEVICE.lock().unwrap() == device {
-        return;
-    }
-    *VOICE_CALL_INPUT_DEVICE.lock().unwrap() = device;
-    restart();
-}
-
-#[inline]
-fn get_audio_input() -> String {
-    VOICE_CALL_INPUT_DEVICE
-        .lock()
-        .unwrap()
-        .clone()
-        .unwrap_or(Config::get_option("audio-input"))
+    let sp = GenericService::new(NAME, true);
+    sp.run(pa_impl::run);
+    sp
 }
 
 pub fn restart() {
@@ -79,7 +48,7 @@ pub fn restart() {
 mod pa_impl {
     use super::*;
     #[tokio::main(flavor = "current_thread")]
-    pub async fn run(sp: EmptyExtraFieldService) -> ResultType<()> {
+    pub async fn run(sp: GenericService) -> ResultType<()> {
         hbb_common::sleep(0.1).await; // one moment to wait for _pa ipc
         RESTARTING.store(false, Ordering::SeqCst);
         #[cfg(target_os = "linux")]
@@ -93,14 +62,12 @@ mod pa_impl {
             stream
                 .send(&crate::ipc::Data::Config((
                     "audio-input".to_owned(),
-                    Some(super::get_audio_input())
+                    Some(Config::get_option("audio-input"))
                 )))
                 .await
         );
         #[cfg(target_os = "linux")]
         let zero_audio_frame: Vec<f32> = vec![0.; AUDIO_DATA_SIZE_U8 / 4];
-        #[cfg(target_os = "android")]
-        let mut android_data = vec![];
         while sp.ok() && !RESTARTING.load(Ordering::SeqCst) {
             sp.snapshot(|sps| {
                 sps.send(create_format_msg(crate::platform::PA_SAMPLE_RATE, 2));
@@ -121,12 +88,9 @@ mod pa_impl {
                 send_f32(data, &mut encoder, &sp);
             }
             #[cfg(target_os = "android")]
-            if scrap::android::ffi::get_audio_raw(&mut android_data, &mut vec![]).is_some() {
+            if let Some(data) = scrap::android::ffi::get_audio_raw() {
                 let data = unsafe {
-                    std::slice::from_raw_parts::<f32>(
-                        android_data.as_ptr() as _,
-                        android_data.len() / 4,
-                    )
+                    std::slice::from_raw_parts::<f32>(data.as_ptr() as _, data.len() / 4)
                 };
                 send_f32(data, &mut encoder, &sp);
             } else {
@@ -139,7 +103,6 @@ mod pa_impl {
 
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 mod cpal_impl {
-    use self::service::{Reset, ServiceSwap};
     use super::*;
     use cpal::{
         traits::{DeviceTrait, HostTrait, StreamTrait},
@@ -162,23 +125,7 @@ mod cpal_impl {
         }
     }
 
-    fn run_restart(sp: EmptyExtraFieldService, state: &mut State) -> ResultType<()> {
-        state.reset();
-        sp.snapshot(|_sps: ServiceSwap<_>| Ok(()))?;
-        match &state.stream {
-            None => {
-                state.stream = Some(play(&sp)?);
-            }
-            _ => {}
-        }
-        if let Some((_, format)) = &state.stream {
-            sp.send_shared(format.clone());
-        }
-        RESTARTING.store(false, Ordering::SeqCst);
-        Ok(())
-    }
-
-    fn run_serv_snapshot(sp: EmptyExtraFieldService, state: &mut State) -> ResultType<()> {
+    pub fn run(sp: GenericService, state: &mut State) -> ResultType<()> {
         sp.snapshot(|sps| {
             match &state.stream {
                 None => {
@@ -192,14 +139,6 @@ mod cpal_impl {
             Ok(())
         })?;
         Ok(())
-    }
-
-    pub fn run(sp: EmptyExtraFieldService, state: &mut State) -> ResultType<()> {
-        if !RESTARTING.load(Ordering::SeqCst) {
-            run_serv_snapshot(sp, state)
-        } else {
-            run_restart(sp, state)
-        }
     }
 
     fn send(
@@ -229,7 +168,7 @@ mod cpal_impl {
 
     #[cfg(windows)]
     fn get_device() -> ResultType<(Device, SupportedStreamConfig)> {
-        let audio_input = super::get_audio_input();
+        let audio_input = Config::get_option("audio-input");
         if !audio_input.is_empty() {
             return get_audio_input(&audio_input);
         }
@@ -250,7 +189,7 @@ mod cpal_impl {
 
     #[cfg(not(windows))]
     fn get_device() -> ResultType<(Device, SupportedStreamConfig)> {
-        let audio_input = super::get_audio_input();
+        let audio_input = Config::get_option("audio-input");
         get_audio_input(&audio_input)
     }
 
@@ -341,10 +280,7 @@ mod cpal_impl {
         let mut encoder = Encoder::new(sample_rate, encode_channel, LowDelay)?;
         // https://www.opus-codec.org/docs/html_api/group__opusencoder.html#gace941e4ef26ed844879fde342ffbe546
         // https://chromium.googlesource.com/chromium/deps/opus/+/1.1.1/include/opus.h
-        // Do not set `frame_size = sample_rate as usize / 100;`
-        // Because we find `sample_rate as usize / 100` will cause encoder error in `encoder.encode_vec_float()` sometimes.
-        // https://github.com/xiph/opus/blob/2554a89e02c7fc30a980b4f7e635ceae1ecba5d6/src/opus_encoder.c#L725
-        let frame_size = sample_rate_0 as usize / 100; // 10 ms
+        let frame_size = sample_rate as usize / 100; // 10 ms
         let encode_len = frame_size * encode_channel as usize;
         let rechannel_len = encode_len * device_channel as usize / encode_channel as usize;
         INPUT_BUFFER.lock().unwrap().clear();

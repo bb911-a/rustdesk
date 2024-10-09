@@ -17,11 +17,6 @@ message YUV {
   int32 stride = 2;
 }
 
-enum Chroma {
-  I420 = 0;
-  I444 = 1;
-}
-
 message VideoFrame {
   oneof union {
     EncodedVideoFrames vp9s = 6;
@@ -32,7 +27,6 @@ message VideoFrame {
     EncodedVideoFrames vp8s = 12;
     EncodedVideoFrames av1s = 13;
   }
-  int32 display = 14;
 }
 
 message IdPk {
@@ -49,7 +43,6 @@ message DisplayInfo {
   bool online = 6;
   bool cursor_embedded = 7;
   Resolution original_resolution = 8;
-  double scale = 9;
 }
 
 message PortForward {
@@ -81,13 +74,6 @@ message LoginRequest {
   uint64 session_id = 10;
   string version = 11;
   OSLogin os_login = 12;
-  string my_platform = 13;
-  bytes hwid = 14;
-}
-
-message Auth2FA {
-  string code = 1;
-  bytes hwid = 2;
 }
 
 message ChatMessage { string text = 1; }
@@ -96,20 +82,11 @@ message Features {
   bool privacy_mode = 1;
 }
 
-message CodecAbility {
-  bool vp8 = 1;
-  bool vp9 = 2;
-  bool av1 = 3;
-  bool h264 = 4;
-  bool h265 = 5;
-}
-
 message SupportedEncoding {
   bool h264 = 1;
   bool h265 = 2;
   bool vp8 = 3;
   bool av1 = 4;
-  CodecAbility i444 = 5;
 }
 
 message PeerInfo {
@@ -124,22 +101,14 @@ message PeerInfo {
   SupportedEncoding encoding = 10;
   SupportedResolutions resolutions = 11;
   // Use JSON's key-value format which is friendly for peer to handle.
-  // NOTE: Only support one-level dictionaries (for peer to update), and the key is of type string.
   string platform_additions = 12;
-  WindowsSessions windows_sessions = 13;
 }
-
-message WindowsSession {  
-  uint32 sid = 1;  
-  string name = 2;  
-}  
 
 message LoginResponse {
   oneof union {
     string error = 1;
     PeerInfo peer_info = 2;
   }
-  bool enable_trusted_devices = 3;
 }
 
 message TouchScaleUpdate {
@@ -149,29 +118,9 @@ message TouchScaleUpdate {
   int32 scale = 1;
 }
 
-message TouchPanStart {
-  int32 x = 1;
-  int32 y = 2;
-}
-
-message TouchPanUpdate {
-  // The delta x position relative to the previous position.
-  int32 x = 1;
-  // The delta y position relative to the previous position.
-  int32 y = 2;
-}
-
-message TouchPanEnd {
-  int32 x = 1;
-  int32 y = 2;
-}
-
 message TouchEvent {
   oneof union {
     TouchScaleUpdate scale_update = 1;
-    TouchPanStart pan_start = 2;
-    TouchPanUpdate pan_update = 3;
-    TouchPanEnd pan_end = 4;
   }
 }
 
@@ -275,10 +224,6 @@ enum ControlKey {
   RShift = 73;
   RControl = 74;
   RAlt = 75;
-  VolumeMute = 76; // mainly used on mobile devices as controlled side
-  VolumeUp = 77;
-  VolumeDown = 78;
-  Power = 79; // mainly used on mobile devices as controlled side
   CtrlAltDel = 100;
   LockScreen = 101;
 }
@@ -319,27 +264,10 @@ message Hash {
   string challenge = 2;
 }
 
-enum ClipboardFormat {
-  Text = 0;
-  Rtf = 1;
-  Html = 2;
-  ImageRgba = 21;
-  ImagePng = 22;
-  ImageSvg = 23;
-  Special = 31;
-}
-
 message Clipboard {
   bool compress = 1;
   bytes content = 2;
-  int32 width = 3;
-  int32 height = 4;
-  ClipboardFormat format = 5;
-  // Special format name, only used when format is Special.
-  string special_name = 6;
 }
-
-message MultiClipboards { repeated Clipboard clipboards = 1; }
 
 enum FileType {
   Dir = 0;
@@ -374,12 +302,6 @@ message ReadAllFiles {
   bool include_hidden = 3;
 }
 
-message FileRename {
-  int32 id = 1;
-  string path = 2;
-  string new_name = 3;
-}
-
 message FileAction {
   oneof union {
     ReadDir read_dir = 1;
@@ -391,7 +313,6 @@ message FileAction {
     ReadAllFiles all_files = 7;
     FileTransferCancel cancel = 8;
     FileTransferSendConfirmRequest send_confirm = 9;
-    FileRename rename = 10;
   }
 }
 
@@ -456,7 +377,6 @@ message FileTransferReceiveRequest {
   string path = 2; // path written to
   repeated FileEntry files = 3;
   int32 file_num = 4;
-  uint64 total_size = 5;
 }
 
 message FileRemoveDir {
@@ -536,11 +456,6 @@ message Resolution {
   int32 height = 2;
 }
 
-message DisplayResolution {
-  int32 display = 1;
-  Resolution resolution = 2;
-}
-
 message SupportedResolutions { repeated Resolution resolutions = 1; }
 
 message SwitchDisplay {
@@ -555,22 +470,6 @@ message SwitchDisplay {
   Resolution original_resolution = 8;
 }
 
-message CaptureDisplays {
-  repeated int32 add = 1;
-  repeated int32 sub = 2;
-  repeated int32 set = 3;
-}
-
-message ToggleVirtualDisplay {
-  int32 display = 1;
-  bool on = 2;
-}
-
-message TogglePrivacyMode {
-  string impl_key = 1;
-  bool on = 2;
-}
-
 message PermissionInfo {
   enum Permission {
     Keyboard = 0;
@@ -579,7 +478,6 @@ message PermissionInfo {
     File = 4;
     Restart = 5;
     Recording = 6;
-    BlockInput = 7;
   }
 
   Permission permission = 1;
@@ -609,8 +507,6 @@ message SupportedDecoding {
   PreferCodec prefer = 4;
   int32 ability_vp8 = 5;
   int32 ability_av1 = 6;
-  CodecAbility i444 = 7;
-  Chroma prefer_chroma = 8;
 }
 
 message OptionMessage {
@@ -633,10 +529,6 @@ message OptionMessage {
   BoolOption disable_keyboard = 12;
 // Position 13 is used for Resolution. Remove later.
 // Resolution custom_resolution = 13;
-// BoolOption support_windows_specific_session = 14;
-  // starting from 15 please, do not use removed fields
-  BoolOption follow_remote_cursor = 15;
-  BoolOption follow_remote_window = 16;
 }
 
 message TestDelay {
@@ -711,10 +603,6 @@ message BackNotification {
     PrivacyModeState privacy_mode_state = 1;
     BlockInputState block_input_state = 2;
   }
-  // Supplementary message, for "PrvOnFailed" and "PrvOffFailed"
-  string details = 3;
-  // The key of the implementation
-  string impl_key = 4;
 }
 
 message ElevationRequestWithLogon {
@@ -751,18 +639,6 @@ message PluginFailure {
   string msg = 3;
 }
 
-message WindowsSessions {
-  repeated WindowsSession sessions = 1;
-  uint32 current_sid = 2;
-}
-
-// Query messages from peer.
-message MessageQuery {
-  // The SwitchDisplay message of the target display.
-  // If the target display is not found, the message will be ignored.
-  int32 switch_display = 1;
-}
-
 message Misc {
   oneof union {
     ChatMessage chat_message = 4;
@@ -783,23 +659,12 @@ message Misc {
     bool portable_service_running = 20;
     SwitchSidesRequest switch_sides_request = 21;
     SwitchBack switch_back = 22;
-    // Deprecated since 1.2.4, use `change_display_resolution` (36) instead.
-    // But we must keep it for compatibility when peer version < 1.2.4.
     Resolution change_resolution = 24;
     PluginRequest plugin_request = 25;
     PluginFailure plugin_failure = 26;
-    uint32 full_speed_fps = 27; // deprecated
+    uint32 full_speed_fps = 27;
     uint32 auto_adjust_fps = 28;
     bool client_record_status = 29;
-    CaptureDisplays capture_displays = 30;
-    int32 refresh_video_display = 31;
-    ToggleVirtualDisplay toggle_virtual_display = 32;
-    TogglePrivacyMode toggle_privacy_mode = 33;
-    SupportedEncoding supported_encoding = 34;
-    uint32 selected_sid = 35;
-    DisplayResolution change_display_resolution = 36;
-    MessageQuery message_query = 37;
-    int32 follow_current_display = 38;
   }
 }
 
@@ -841,7 +706,5 @@ message Message {
     VoiceCallResponse voice_call_response = 24;
     PeerInfo peer_info = 25;
     PointerDeviceEvent pointer_device_event = 26;
-    Auth2FA auth_2fa = 27;
-    MultiClipboards multi_clipboards = 28;
   }
 }

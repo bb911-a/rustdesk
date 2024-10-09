@@ -1,10 +1,7 @@
-use crate::{
-    common::{
-        wayland,
-        x11::{self},
-        TraitCapturer,
-    },
-    Frame,
+use crate::common::{
+    wayland,
+    x11::{self, Frame},
+    TraitCapturer,
 };
 use std::{io, time::Duration};
 
@@ -14,10 +11,10 @@ pub enum Capturer {
 }
 
 impl Capturer {
-    pub fn new(display: Display) -> io::Result<Capturer> {
+    pub fn new(display: Display, yuv: bool) -> io::Result<Capturer> {
         Ok(match display {
-            Display::X11(d) => Capturer::X11(x11::Capturer::new(d)?),
-            Display::WAYLAND(d) => Capturer::WAYLAND(wayland::Capturer::new(d)?),
+            Display::X11(d) => Capturer::X11(x11::Capturer::new(d, yuv)?),
+            Display::WAYLAND(d) => Capturer::WAYLAND(wayland::Capturer::new(d, yuv)?),
         })
     }
 
@@ -37,6 +34,13 @@ impl Capturer {
 }
 
 impl TraitCapturer for Capturer {
+    fn set_use_yuv(&mut self, use_yuv: bool) {
+        match self {
+            Capturer::X11(d) => d.set_use_yuv(use_yuv),
+            Capturer::WAYLAND(d) => d.set_use_yuv(use_yuv),
+        }
+    }
+
     fn frame<'a>(&'a mut self, timeout: Duration) -> io::Result<Frame<'a>> {
         match self {
             Capturer::X11(d) => d.frame(timeout),
@@ -59,7 +63,6 @@ impl Display {
         })
     }
 
-    // Currently, wayland need to call wayland::clear() before call Display::all()
     pub fn all() -> io::Result<Vec<Display>> {
         Ok(if super::is_x11() {
             x11::Display::all()?

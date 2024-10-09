@@ -1,5 +1,4 @@
 use crate::client::*;
-use async_trait::async_trait;
 use hbb_common::{
     config::PeerConfig,
     config::READ_TIMEOUT,
@@ -33,14 +32,11 @@ impl Session {
             password,
             lc: Default::default(),
         };
-        session.lc.write().unwrap().initialize(
-            id.to_owned(),
-            ConnType::PORT_FORWARD,
-            None,
-            false,
-            None,
-            None,
-        );
+        session
+            .lc
+            .write()
+            .unwrap()
+            .initialize(id.to_owned(), ConnType::PORT_FORWARD, None);
         session
     }
 }
@@ -79,15 +75,15 @@ impl Interface for Session {
         }
     }
 
-    fn handle_login_error(&self, err: &str) -> bool {
+    fn handle_login_error(&mut self, err: &str) -> bool {
         handle_login_error(self.lc.clone(), err, self)
     }
 
-    fn handle_peer_info(&self, pi: PeerInfo) {
+    fn handle_peer_info(&mut self, pi: PeerInfo) {
         self.lc.write().unwrap().handle_peer_info(&pi);
     }
 
-    async fn handle_hash(&self, pass: &str, hash: Hash, peer: &mut Stream) {
+    async fn handle_hash(&mut self, pass: &str, hash: Hash, peer: &mut Stream) {
         log::info!(
             "password={}",
             hbb_common::password_security::temporary_password()
@@ -96,7 +92,7 @@ impl Interface for Session {
     }
 
     async fn handle_login_from_ui(
-        &self,
+        &mut self,
         os_username: String,
         os_password: String,
         password: String,
@@ -114,7 +110,7 @@ impl Interface for Session {
         .await;
     }
 
-    async fn handle_test_delay(&self, t: TestDelay, peer: &mut Stream) {
+    async fn handle_test_delay(&mut self, t: TestDelay, peer: &mut Stream) {
         handle_test_delay(t, peer).await;
     }
 

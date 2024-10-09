@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -174,13 +175,12 @@ String getLocalPlatformForKBLayoutType(String peerPlatform) {
     return localPlatform;
   }
 
-  if (isWindows) {
+  if (Platform.isWindows) {
     localPlatform = kPeerPlatformWindows;
-  } else if (isLinux) {
+  } else if (Platform.isLinux) {
     localPlatform = kPeerPlatformLinux;
-  } else if (isWebOnWindows || isWebOnLinux) {
-    localPlatform = kPeerPlatformWebDesktop;
   }
+  // to-do: web desktop support ?
   return localPlatform;
 }
 

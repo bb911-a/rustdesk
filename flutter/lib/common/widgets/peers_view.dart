@@ -1,13 +1,8 @@
 import 'dart:async';
 import 'dart:collection';
 
-import 'package:dynamic_layouts/dynamic_layouts.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/widgets/scroll_wrapper.dart';
-import 'package:flutter_hbb/models/peer_tab_model.dart';
-import 'package:flutter_hbb/models/state_model.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:visibility_detector/visibility_detector.dart';
@@ -40,29 +35,16 @@ class LoadEvent {
   static const String favorite = 'load_fav_peers';
   static const String lan = 'load_lan_peers';
   static const String addressBook = 'load_address_book_peers';
-  static const String group = 'load_group_peers';
-}
-
-class PeersModelName {
-  static const String recent = 'recent peer';
-  static const String favorite = 'fav peer';
-  static const String lan = 'discovered peer';
-  static const String addressBook = 'address book peer';
-  static const String group = 'group peer';
 }
 
 /// for peer search text, global obs value
 final peerSearchText = "".obs;
 
 /// for peer sort, global obs value
-RxString? _peerSort;
-RxString get peerSort {
-  _peerSort ??= bind.getLocalFlutterOption(k: kOptionPeerSorting).obs;
-  return _peerSort!;
-}
+final peerSort = bind.getLocalFlutterOption(k: 'peer-sorting').obs;
 
 // list for listener
-RxList<RxString> get obslist => [peerSearchText, peerSort].obs;
+final obslist = [peerSearchText, peerSort].obs;
 
 final peerSearchTextController =
     TextEditingController(text: peerSearchText.value);
@@ -84,8 +66,7 @@ class _PeersView extends StatefulWidget {
 }
 
 /// State for the peer widget.
-class _PeersViewState extends State<_PeersView>
-    with WindowListener, WidgetsBindingObserver {
+class _PeersViewState extends State<_PeersView> with WindowListener {
   static const int _maxQueryCount = 3;
   final HashMap<String, String> _emptyMessages = HashMap.from({
     LoadEvent.recent: 'empty_recent_tip',
@@ -93,17 +74,24 @@ class _PeersViewState extends State<_PeersView>
     LoadEvent.lan: 'empty_lan_tip',
     LoadEvent.addressBook: 'empty_address_book_tip',
   });
-  final space = (isDesktop || isWebDesktop) ? 12.0 : 8.0;
+  final space = isDesktop ? 12.0 : 8.0;
   final _curPeers = <String>{};
   var _lastChangeTime = DateTime.now();
   var _lastQueryPeers = <String>{};
-  var _lastQueryTime = DateTime.now();
-  var _lastWindowRestoreTime = DateTime.now();
+  var _lastQueryTime = DateTime.now().subtract(const Duration(hours: 1));
   var _queryCount = 0;
   var _exit = false;
-  bool _isActive = true;
 
-  final _scrollController = ScrollController();
+  late final mobileWidth = () {
+    const minWidth = 320.0;
+    final windowWidth = MediaQuery.of(context).size.width;
+    var width = windowWidth - 2 * space;
+    if (windowWidth > minWidth + 2 * space) {
+      final n = (windowWidth / (minWidth + 2 * space)).floor();
+      width = windowWidth / n - 2 * space;
+    }
+    return width;
+  }();
 
   _PeersViewState() {
     _startCheckOnlines();
@@ -112,14 +100,12 @@ class _PeersViewState extends State<_PeersView>
   @override
   void initState() {
     windowManager.addListener(this);
-    WidgetsBinding.instance.addObserver(this);
     super.initState();
   }
 
   @override
   void dispose() {
     windowManager.removeListener(this);
-    WidgetsBinding.instance.removeObserver(this);
     _exit = true;
     super.dispose();
   }
@@ -127,61 +113,17 @@ class _PeersViewState extends State<_PeersView>
   @override
   void onWindowFocus() {
     _queryCount = 0;
-    _isActive = true;
-  }
-
-  @override
-  void onWindowBlur() {
-    // We need this comparison because window restore (on Windows) also triggers `onWindowBlur()`.
-    // Maybe it's a bug of the window manager, but the source code seems to be correct.
-    //
-    // Although `onWindowRestore()` is called after `onWindowBlur()` in my test,
-    // we need the following comparison to ensure that `_isActive` is true in the end.
-    if (isWindows &&
-        DateTime.now().difference(_lastWindowRestoreTime) <
-            const Duration(milliseconds: 300)) {
-      return;
-    }
-    _queryCount = _maxQueryCount;
-    _isActive = false;
-  }
-
-  @override
-  void onWindowRestore() {
-    // Window restore (on MacOS and Linux) also triggers `onWindowFocus()`.
-    // But on Windows, it triggers `onWindowBlur()`, mybe it's a bug of the window manager.
-    if (!isWindows) return;
-    _queryCount = 0;
-    _isActive = true;
-    _lastWindowRestoreTime = DateTime.now();
   }
 
   @override
   void onWindowMinimize() {
-    // Window minimize also triggers `onWindowBlur()`.
-  }
-
-  // This function is required for mobile.
-  // `onWindowFocus` works fine for desktop.
-  @override
-  void didChangeAppLifecycleState(AppLifecycleState state) {
-    super.didChangeAppLifecycleState(state);
-    if (isDesktop || isWebDesktop) return;
-    if (state == AppLifecycleState.resumed) {
-      _isActive = true;
-      _queryCount = 0;
-    } else if (state == AppLifecycleState.inactive) {
-      _isActive = false;
-    }
+    _queryCount = _maxQueryCount;
   }
 
   @override
   Widget build(BuildContext context) {
-    // We should avoid too many rebuilds. MacOS(m1, 14.6.1) on Flutter 3.19.6.
-    // Continious rebuilds of `ChangeNotifierProvider` will cause memory leak.
-    // Simple demo can reproduce this issue.
-    return ChangeNotifierProvider<Peers>.value(
-      value: widget.peers,
+    return ChangeNotifierProvider<Peers>(
+      create: (context) => widget.peers,
       child: Consumer<Peers>(builder: (context, peers, child) {
         if (peers.peers.isEmpty) {
           gFFI.peerTabModel.setCurrentTabCachedPeers([]);
@@ -232,72 +174,28 @@ class _PeersViewState extends State<_PeersView>
       return FutureBuilder<List<Peer>>(
         builder: (context, snapshot) {
           if (snapshot.hasData) {
-            var peers = snapshot.data!;
-            if (peers.length > 1000) peers = peers.sublist(0, 1000);
+            final peers = snapshot.data!;
             gFFI.peerTabModel.setCurrentTabCachedPeers(peers);
-            buildOnePeer(Peer peer, bool isPortrait) {
+            final cards = <Widget>[];
+            for (final peer in peers) {
               final visibilityChild = VisibilityDetector(
                 key: ValueKey(_cardId(peer.id)),
                 onVisibilityChanged: onVisibilityChanged,
                 child: widget.peerCardBuilder(peer),
               );
-              // `Provider.of<PeerTabModel>(context)` will causes infinete loop.
-              // Because `gFFI.peerTabModel.setCurrentTabCachedPeers(peers)` will trigger `notifyListeners()`.
-              //
-              // No need to listen the currentTab change event.
-              // Because the currentTab change event will trigger the peers change event,
-              // and the peers change event will trigger _buildPeersView().
-              return !isPortrait
-                  ? Obx(() => peerCardUiType.value == PeerUiType.list
-                      ? Container(height: 45, child: visibilityChild)
-                      : peerCardUiType.value == PeerUiType.grid
-                          ? SizedBox(
-                              width: 220, height: 140, child: visibilityChild)
-                          : SizedBox(
-                              width: 220, height: 42, child: visibilityChild))
-                  : Container(child: visibilityChild);
+              cards.add(isDesktop
+                  ? Obx(
+                      () => SizedBox(
+                        width: 220,
+                        height:
+                            peerCardUiType.value == PeerUiType.grid ? 140 : 42,
+                        child: visibilityChild,
+                      ),
+                    )
+                  : SizedBox(width: mobileWidth, child: visibilityChild));
             }
-
-            // We should avoid too many rebuilds. Win10(Some machines) on Flutter 3.19.6.
-            // Continious rebuilds of `ListView.builder` will cause memory leak.
-            // Simple demo can reproduce this issue.
-            final Widget child = Obx(() => stateGlobal.isPortrait.isTrue
-                ? ListView.builder(
-                    itemCount: peers.length,
-                    itemBuilder: (BuildContext context, int index) {
-                      return buildOnePeer(peers[index], true).marginOnly(
-                          top: index == 0 ? 0 : space / 2, bottom: space / 2);
-                    },
-                  )
-                : peerCardUiType.value == PeerUiType.list
-                    ? DesktopScrollWrapper(
-                        scrollController: _scrollController,
-                        child: ListView.builder(
-                            controller: _scrollController,
-                            physics: DraggableNeverScrollableScrollPhysics(),
-                            itemCount: peers.length,
-                            itemBuilder: (BuildContext context, int index) {
-                              return buildOnePeer(peers[index], false)
-                                  .marginOnly(
-                                      right: space,
-                                      top: index == 0 ? 0 : space / 2,
-                                      bottom: space / 2);
-                            }),
-                      )
-                    : DesktopScrollWrapper(
-                        scrollController: _scrollController,
-                        child: DynamicGridView.builder(
-                            controller: _scrollController,
-                            physics: DraggableNeverScrollableScrollPhysics(),
-                            gridDelegate: SliverGridDelegateWithWrapping(
-                                mainAxisSpacing: space / 2,
-                                crossAxisSpacing: space),
-                            itemCount: peers.length,
-                            itemBuilder: (BuildContext context, int index) {
-                              return buildOnePeer(peers[index], false);
-                            }),
-                      ));
-
+            final child =
+                Wrap(spacing: space, runSpacing: space, children: cards);
             if (updateEvent == UpdateEvent.load) {
               _curPeers.clear();
               _curPeers.addAll(peers.map((e) => e.id));
@@ -317,14 +215,10 @@ class _PeersViewState extends State<_PeersView>
     return body;
   }
 
-  var _queryInterval = const Duration(seconds: 20);
+  final _queryInterval = const Duration(seconds: 20);
 
   void _startCheckOnlines() {
     () async {
-      final p = await bind.mainIsUsingPublicServer();
-      if (!p) {
-        _queryInterval = const Duration(seconds: 6);
-      }
       while (!_exit) {
         final now = DateTime.now();
         if (!setEquals(_curPeers, _lastQueryPeers)) {
@@ -332,15 +226,11 @@ class _PeersViewState extends State<_PeersView>
             _queryOnlines(false);
           }
         } else {
-          final skipIfIsWeb =
-              isWeb && !(stateGlobal.isWebVisible && stateGlobal.isInMainPage);
-          final skipIfMobile =
-              (isAndroid || isIOS) && !stateGlobal.isInMainPage;
-          final skipIfNotActive = skipIfIsWeb || skipIfMobile || !_isActive;
-          if (!skipIfNotActive && (_queryCount < _maxQueryCount || !p)) {
+          if (_queryCount < _maxQueryCount) {
             if (now.difference(_lastQueryTime) >= _queryInterval) {
               if (_curPeers.isNotEmpty) {
-                bind.queryOnlines(ids: _curPeers.toList(growable: false));
+                platformFFI.ffiBind
+                    .queryOnlines(ids: _curPeers.toList(growable: false));
                 _lastQueryTime = DateTime.now();
                 _queryCount += 1;
               }
@@ -354,14 +244,14 @@ class _PeersViewState extends State<_PeersView>
 
   _queryOnlines(bool isLoadEvent) {
     if (_curPeers.isNotEmpty) {
-      bind.queryOnlines(ids: _curPeers.toList(growable: false));
+      platformFFI.ffiBind.queryOnlines(ids: _curPeers.toList(growable: false));
+      _lastQueryPeers = {..._curPeers};
+      if (isLoadEvent) {
+        _lastChangeTime = DateTime.now();
+      } else {
+        _lastQueryTime = DateTime.now().subtract(_queryInterval);
+      }
       _queryCount = 0;
-    }
-    _lastQueryPeers = {..._curPeers};
-    if (isLoadEvent) {
-      _lastChangeTime = DateTime.now();
-    } else {
-      _lastQueryTime = DateTime.now().subtract(_queryInterval);
     }
   }
 
@@ -375,7 +265,7 @@ class _PeersViewState extends State<_PeersView>
     if (!PeerSortType.values.contains(sortedBy)) {
       sortedBy = PeerSortType.remoteId;
       bind.setLocalFlutterOption(
-        k: kOptionPeerSorting,
+        k: "peer-sorting",
         v: sortedBy,
       );
     }
@@ -418,39 +308,27 @@ class _PeersViewState extends State<_PeersView>
 }
 
 abstract class BasePeersView extends StatelessWidget {
-  final PeerTabIndex peerTabIndex;
+  final String name;
+  final String loadEvent;
   final PeerFilter? peerFilter;
   final PeerCardBuilder peerCardBuilder;
+  final List<Peer> initPeers;
 
   const BasePeersView({
     Key? key,
-    required this.peerTabIndex,
+    required this.name,
+    required this.loadEvent,
     this.peerFilter,
     required this.peerCardBuilder,
+    required this.initPeers,
   }) : super(key: key);
 
   @override
   Widget build(BuildContext context) {
-    Peers peers;
-    switch (peerTabIndex) {
-      case PeerTabIndex.recent:
-        peers = gFFI.recentPeersModel;
-        break;
-      case PeerTabIndex.fav:
-        peers = gFFI.favoritePeersModel;
-        break;
-      case PeerTabIndex.lan:
-        peers = gFFI.lanPeersModel;
-        break;
-      case PeerTabIndex.ab:
-        peers = gFFI.abModel.peersModel;
-        break;
-      case PeerTabIndex.group:
-        peers = gFFI.groupModel.peersModel;
-        break;
-    }
     return _PeersView(
-        peers: peers, peerFilter: peerFilter, peerCardBuilder: peerCardBuilder);
+        peers: Peers(name: name, loadEvent: loadEvent, peers: initPeers),
+        peerFilter: peerFilter,
+        peerCardBuilder: peerCardBuilder);
   }
 }
 
@@ -459,11 +337,13 @@ class RecentPeersView extends BasePeersView {
       {Key? key, EdgeInsets? menuPadding, ScrollController? scrollController})
       : super(
           key: key,
-          peerTabIndex: PeerTabIndex.recent,
+          name: 'recent peer',
+          loadEvent: LoadEvent.recent,
           peerCardBuilder: (Peer peer) => RecentPeerCard(
             peer: peer,
             menuPadding: menuPadding,
           ),
+          initPeers: [],
         );
 
   @override
@@ -479,11 +359,13 @@ class FavoritePeersView extends BasePeersView {
       {Key? key, EdgeInsets? menuPadding, ScrollController? scrollController})
       : super(
           key: key,
-          peerTabIndex: PeerTabIndex.fav,
+          name: 'favorite peer',
+          loadEvent: LoadEvent.favorite,
           peerCardBuilder: (Peer peer) => FavoritePeerCard(
             peer: peer,
             menuPadding: menuPadding,
           ),
+          initPeers: [],
         );
 
   @override
@@ -499,11 +381,13 @@ class DiscoveredPeersView extends BasePeersView {
       {Key? key, EdgeInsets? menuPadding, ScrollController? scrollController})
       : super(
           key: key,
-          peerTabIndex: PeerTabIndex.lan,
+          name: 'discovered peer',
+          loadEvent: LoadEvent.lan,
           peerCardBuilder: (Peer peer) => DiscoveredPeerCard(
             peer: peer,
             menuPadding: menuPadding,
           ),
+          initPeers: [],
         );
 
   @override
@@ -516,61 +400,62 @@ class DiscoveredPeersView extends BasePeersView {
 
 class AddressBookPeersView extends BasePeersView {
   AddressBookPeersView(
-      {Key? key, EdgeInsets? menuPadding, ScrollController? scrollController})
+      {Key? key,
+      EdgeInsets? menuPadding,
+      ScrollController? scrollController,
+      required List<Peer> initPeers})
       : super(
           key: key,
-          peerTabIndex: PeerTabIndex.ab,
+          name: 'address book peer',
+          loadEvent: LoadEvent.addressBook,
           peerFilter: (Peer peer) =>
               _hitTag(gFFI.abModel.selectedTags, peer.tags),
           peerCardBuilder: (Peer peer) => AddressBookPeerCard(
             peer: peer,
             menuPadding: menuPadding,
           ),
+          initPeers: initPeers,
         );
 
   static bool _hitTag(List<dynamic> selectedTags, List<dynamic> idents) {
     if (selectedTags.isEmpty) {
       return true;
     }
-    if (gFFI.abModel.filterByIntersection.value) {
-      for (final tag in selectedTags) {
-        if (!idents.contains(tag)) {
-          return false;
-        }
+    for (final tag in selectedTags) {
+      if (idents.contains(tag)) {
+        return true;
       }
-      return true;
-    } else {
-      for (final tag in selectedTags) {
-        if (idents.contains(tag)) {
-          return true;
-        }
-      }
-      return false;
     }
+    return false;
   }
 }
 
 class MyGroupPeerView extends BasePeersView {
   MyGroupPeerView(
-      {Key? key, EdgeInsets? menuPadding, ScrollController? scrollController})
+      {Key? key,
+      EdgeInsets? menuPadding,
+      ScrollController? scrollController,
+      required List<Peer> initPeers})
       : super(
           key: key,
-          peerTabIndex: PeerTabIndex.group,
+          name: 'my group peer',
+          loadEvent: 'load_my_group_peers',
           peerFilter: filter,
           peerCardBuilder: (Peer peer) => MyGroupPeerCard(
             peer: peer,
             menuPadding: menuPadding,
           ),
+          initPeers: initPeers,
         );
 
   static bool filter(Peer peer) {
     if (gFFI.groupModel.searchUserText.isNotEmpty) {
-      if (!peer.loginName.contains(gFFI.groupModel.searchUserText)) {
+      if (!peer.username.contains(gFFI.groupModel.searchUserText)) {
         return false;
       }
     }
     if (gFFI.groupModel.selectedUser.isNotEmpty) {
-      if (gFFI.groupModel.selectedUser.value != peer.loginName) {
+      if (gFFI.groupModel.selectedUser.value != peer.username) {
         return false;
       }
     }

@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     iter::FromIterator,
+    process::Child,
     sync::{Arc, Mutex},
 };
 
@@ -21,6 +22,7 @@ mod cm;
 pub mod inline;
 pub mod remote;
 
+pub type Children = Arc<Mutex<(bool, HashMap<(String, String), Child>)>>;
 #[allow(dead_code)]
 type Status = (i32, bool, i64, String);
 
@@ -32,6 +34,7 @@ lazy_static::lazy_static! {
 #[cfg(not(any(feature = "flutter", feature = "cli")))]
 lazy_static::lazy_static! {
     pub static ref CUR_SESSION: Arc<Mutex<Option<Session<remote::SciterHandler>>>> = Default::default();
+    static ref CHILDREN : Children = Default::default();
 }
 
 struct UIHostHandler;
@@ -41,23 +44,15 @@ pub fn start(args: &mut [String]) {
     crate::platform::delegate::show_dock();
     #[cfg(all(target_os = "linux", feature = "inline"))]
     {
-        let app_dir = std::env::var("APPDIR").unwrap_or("".to_string());
-        let mut so_path = "/usr/lib/rustdesk/libsciter-gtk.so".to_owned();
-        for (prefix, dir) in [
-            ("", "/usr"),
-            ("", "/app"),
-            (&app_dir, "/usr"),
-            (&app_dir, "/app"),
-        ]
-        .iter()
-        {
-            let path = format!("{prefix}{dir}/lib/rustdesk/libsciter-gtk.so");
-            if std::path::Path::new(&path).exists() {
-                so_path = path;
-                break;
-            }
-        }
-        sciter::set_library(&so_path).ok();
+        #[cfg(feature = "appimage")]
+        let prefix = std::env::var("APPDIR").unwrap_or("".to_string());
+        #[cfg(not(feature = "appimage"))]
+        let prefix = "".to_string();
+        #[cfg(feature = "flatpak")]
+        let dir = "/app";
+        #[cfg(not(feature = "flatpak"))]
+        let dir = "/usr";
+        sciter::set_library(&(prefix + dir + "/lib/rustdesk/libsciter-gtk.so")).ok();
     }
     #[cfg(windows)]
     // Check if there is a sciter.dll nearby.
@@ -87,8 +82,6 @@ pub fn start(args: &mut [String]) {
     frame.set_title(&crate::get_app_name());
     #[cfg(target_os = "macos")]
     crate::platform::delegate::make_menubar(frame.get_host(), args.is_empty());
-    #[cfg(windows)]
-    crate::platform::try_set_window_foreground(frame.get_hwnd() as _);
     let page;
     if args.len() > 1 && args[0] == "--play" {
         args[0] = "--connect".to_owned();
@@ -269,7 +262,7 @@ impl UI {
     }
 
     fn using_public_server(&self) -> bool {
-        crate::using_public_server()
+        using_public_server()
     }
 
     fn get_options(&self) -> Value {
@@ -282,8 +275,8 @@ impl UI {
         m
     }
 
-    fn test_if_valid_server(&self, host: String, test_with_proxy: bool) -> String {
-        test_if_valid_server(host, test_with_proxy)
+    fn test_if_valid_server(&self, host: String) -> String {
+        test_if_valid_server(host)
     }
 
     fn get_sound_inputs(&self) -> Value {
@@ -312,10 +305,6 @@ impl UI {
         install_path()
     }
 
-    fn install_options(&self) -> String {
-        install_options()
-    }
-
     fn get_socks(&self) -> Value {
         Value::from_iter(get_socks())
     }
@@ -337,6 +326,10 @@ impl UI {
         return true;
         #[cfg(debug_assertions)]
         return false;
+    }
+
+    fn is_rdp_service_open(&self) -> bool {
+        is_rdp_service_open()
     }
 
     fn is_share_rdp(&self) -> bool {
@@ -562,10 +555,6 @@ impl UI {
         change_id_shared(id, old_id);
     }
 
-    fn http_request(&self, url: String, method: String, body: Option<String>, header: String) {
-        http_request(url, method, body, header)
-    }
-
     fn post_request(&self, url: String, body: String, header: String) {
         post_request(url, body, header)
     }
@@ -576,10 +565,6 @@ impl UI {
 
     fn get_async_job_status(&self) -> String {
         get_async_job_status()
-    }
-
-    fn get_http_status(&self, url: String) -> Option<String> {
-        get_async_http_status(url)
     }
 
     fn t(&self, name: String) -> String {
@@ -598,54 +583,20 @@ impl UI {
         has_hwcodec()
     }
 
-    fn has_vram(&self) -> bool {
-        has_vram()
-    }
-
     fn get_langs(&self) -> String {
         get_langs()
     }
 
-    fn video_save_directory(&self, root: bool) -> String {
-        video_save_directory(root)
+    fn default_video_save_directory(&self) -> String {
+        default_video_save_directory()
     }
 
     fn handle_relay_id(&self, id: String) -> String {
-        handle_relay_id(&id).to_owned()
+        handle_relay_id(id)
     }
 
     fn get_login_device_info(&self) -> String {
         get_login_device_info_json()
-    }
-
-    fn support_remove_wallpaper(&self) -> bool {
-        support_remove_wallpaper()
-    }
-
-    fn has_valid_2fa(&self) -> bool {
-        has_valid_2fa()
-    }
-
-    fn generate2fa(&self) -> String {
-        generate2fa()
-    }
-
-    pub fn verify2fa(&self, code: String) -> bool {
-        verify2fa(code)
-    }
-
-    fn generate_2fa_img_src(&self, data: String) -> String {
-        let v = qrcode_generator::to_png_to_vec(data, qrcode_generator::QrCodeEcc::Low, 128)
-            .unwrap_or_default();
-        let s = hbb_common::sodiumoxide::base64::encode(
-            v,
-            hbb_common::sodiumoxide::base64::Variant::Original,
-        );
-        format!("data:image/png;base64,{s}")
-    }
-
-    pub fn check_hwcodec(&self) {
-        check_hwcodec()
     }
 }
 
@@ -683,11 +634,11 @@ impl sciter::EventHandler for UI {
         fn is_release();
         fn set_socks(String, String, String);
         fn get_socks();
+        fn is_rdp_service_open();
         fn is_share_rdp();
         fn set_share_rdp(bool);
         fn is_installed_lower_version();
         fn install_path();
-        fn install_options();
         fn goto_install();
         fn is_process_trusted(bool);
         fn is_can_screen_recording(bool);
@@ -704,7 +655,7 @@ impl sciter::EventHandler for UI {
         fn forget_password(String);
         fn set_peer_option(String, String, String);
         fn get_license();
-        fn test_if_valid_server(String, bool);
+        fn test_if_valid_server(String);
         fn get_sound_inputs();
         fn set_options(Value);
         fn set_option(String, String);
@@ -728,17 +679,10 @@ impl sciter::EventHandler for UI {
         fn get_lan_peers();
         fn get_uuid();
         fn has_hwcodec();
-        fn has_vram();
         fn get_langs();
-        fn video_save_directory(bool);
+        fn default_video_save_directory();
         fn handle_relay_id(String);
         fn get_login_device_info();
-        fn support_remove_wallpaper();
-        fn has_valid_2fa();
-        fn generate2fa();
-        fn generate_2fa_img_src(String);
-        fn verify2fa(String);
-        fn check_hwcodec();
     }
 }
 

@@ -2,7 +2,6 @@ use std::rc::Rc;
 
 use super::ffi::*;
 use super::Server;
-use crate::Pixfmt;
 
 #[derive(Debug)]
 pub struct Display {
@@ -11,7 +10,6 @@ pub struct Display {
     rect: Rect,
     root: xcb_window_t,
     name: String,
-    pixfmt: Pixfmt,
 }
 
 #[derive(Copy, Clone, Debug, Hash, Eq, PartialEq)]
@@ -29,7 +27,6 @@ impl Display {
         rect: Rect,
         root: xcb_window_t,
         name: String,
-        pixfmt: Pixfmt,
     ) -> Display {
         Display {
             server,
@@ -37,7 +34,6 @@ impl Display {
             rect,
             root,
             name,
-            pixfmt,
         }
     }
 
@@ -62,9 +58,5 @@ impl Display {
 
     pub fn name(&self) -> String {
         self.name.clone()
-    }
-
-    pub fn pixfmt(&self) -> Pixfmt {
-        self.pixfmt
     }
 }

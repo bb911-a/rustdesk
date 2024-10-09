@@ -15,15 +15,22 @@ import 'package:path_provider/path_provider.dart';
 import '../common.dart';
 import '../generated_bridge.dart';
 
-final class RgbaFrame extends Struct {
+class RgbaFrame extends Struct {
   @Uint32()
   external int len;
   external Pointer<Uint8> data;
 }
 
-typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>, int);
-typedef F3Dart = Pointer<Uint8> Function(Pointer<Utf8>, Int32);
+typedef F2 = Pointer<Utf8> Function(Pointer<Utf8>, Pointer<Utf8>);
+typedef F3 = Pointer<Uint8> Function(Pointer<Utf8>);
+typedef F4 = Uint64 Function(Pointer<Utf8>);
+typedef F4Dart = int Function(Pointer<Utf8>);
+typedef F5 = Void Function(Pointer<Utf8>);
+typedef F5Dart = void Function(Pointer<Utf8>);
 typedef HandleEvent = Future<void> Function(Map<String, dynamic> evt);
+// pub fn session_register_texture(id: *const char, ptr: usize)
+typedef F6 = Void Function(Pointer<Utf8>, Uint64);
+typedef F6Dart = void Function(Pointer<Utf8>, int);
 
 /// FFI wrapper around the native Rust core.
 /// Hides the platform differences.
@@ -31,6 +38,7 @@ class PlatformFFI {
   String _dir = '';
   // _homeDir is only needed for Android and IOS.
   String _homeDir = '';
+  F2? _translate;
   final _eventHandlers = <String, Map<String, HandleEvent>>{};
   late RustdeskImpl _ffiBind;
   late String _appType;
@@ -43,16 +51,13 @@ class PlatformFFI {
 
   RustdeskImpl get ffiBind => _ffiBind;
   F3? _session_get_rgba;
+  F4Dart? _session_get_rgba_size;
+  F5Dart? _session_next_rgba;
+  F6Dart? _session_register_texture;
 
   static get localeName => Platform.localeName;
 
   static get isMain => instance._appType == kAppTypeMain;
-
-  static String getByName(String name, [String arg = '']) {
-    return '';
-  }
-
-  static void setByName(String name, [String value = '']) {}
 
   static Future<String> getVersion() async {
     PackageInfo packageInfo = await PackageInfo.fromPlatform();
@@ -84,15 +89,25 @@ class PlatformFFI {
     }
   }
 
-  String translate(String name, String locale) =>
-      _ffiBind.translate(name: name, locale: locale);
+  String translate(String name, String locale) {
+    if (_translate == null) return name;
+    var a = name.toNativeUtf8();
+    var b = locale.toNativeUtf8();
+    var p = _translate!(a, b);
+    assert(p != nullptr);
+    final res = p.toDartString();
+    calloc.free(p);
+    calloc.free(a);
+    calloc.free(b);
+    return res;
+  }
 
-  Uint8List? getRgba(SessionID sessionId, int display, int bufSize) {
+  Uint8List? getRgba(SessionID sessionId, int bufSize) {
     if (_session_get_rgba == null) return null;
     final sessionIdStr = sessionId.toString();
     var a = sessionIdStr.toNativeUtf8();
     try {
-      final buffer = _session_get_rgba!(a, display);
+      final buffer = _session_get_rgba!(a);
       if (buffer == nullptr) {
         return null;
       }
@@ -103,36 +118,53 @@ class PlatformFFI {
     }
   }
 
-  int getRgbaSize(SessionID sessionId, int display) =>
-      _ffiBind.sessionGetRgbaSize(sessionId: sessionId, display: display);
-  void nextRgba(SessionID sessionId, int display) =>
-      _ffiBind.sessionNextRgba(sessionId: sessionId, display: display);
-  void registerPixelbufferTexture(SessionID sessionId, int display, int ptr) =>
-      _ffiBind.sessionRegisterPixelbufferTexture(
-          sessionId: sessionId, display: display, ptr: ptr);
-  void registerGpuTexture(SessionID sessionId, int display, int ptr) =>
-      _ffiBind.sessionRegisterGpuTexture(
-          sessionId: sessionId, display: display, ptr: ptr);
+  int? getRgbaSize(SessionID sessionId) {
+    if (_session_get_rgba_size == null) return null;
+    final sessionIdStr = sessionId.toString();
+    var a = sessionIdStr.toNativeUtf8();
+    final bufferSize = _session_get_rgba_size!(a);
+    malloc.free(a);
+    return bufferSize;
+  }
+
+  void nextRgba(SessionID sessionId) {
+    if (_session_next_rgba == null) return;
+    final sessionIdStr = sessionId.toString();
+    final a = sessionIdStr.toNativeUtf8();
+    _session_next_rgba!(a);
+    malloc.free(a);
+  }
+
+  void registerTexture(SessionID sessionId, int ptr) {
+    if (_session_register_texture == null) return;
+    final sessionIdStr = sessionId.toString();
+    final a = sessionIdStr.toNativeUtf8();
+    _session_register_texture!(a, ptr);
+    malloc.free(a);
+  }
 
   /// Init the FFI class, loads the native Rust core library.
   Future<void> init(String appType) async {
     _appType = appType;
-    final dylib = isAndroid
+    final dylib = Platform.isAndroid
         ? DynamicLibrary.open('librustdesk.so')
-        : isLinux
+        : Platform.isLinux
             ? DynamicLibrary.open('librustdesk.so')
-            : isWindows
+            : Platform.isWindows
                 ? DynamicLibrary.open('librustdesk.dll')
-                :
-                // Use executable itself as the dynamic library for MacOS.
-                // Multiple dylib instances will cause some global instances to be invalid.
-                // eg. `lazy_static` objects in rust side, will be created more than once, which is not expected.
-                //
-                // isMacOS? DynamicLibrary.open("liblibrustdesk.dylib") :
-                DynamicLibrary.process();
+                : Platform.isMacOS
+                    ? DynamicLibrary.open("liblibrustdesk.dylib")
+                    : DynamicLibrary.process();
     debugPrint('initializing FFI $_appType');
     try {
-      _session_get_rgba = dylib.lookupFunction<F3Dart, F3>("session_get_rgba");
+      _translate = dylib.lookupFunction<F2, F2>('translate');
+      _session_get_rgba = dylib.lookupFunction<F3, F3>("session_get_rgba");
+      _session_get_rgba_size =
+          dylib.lookupFunction<F4, F4Dart>("session_get_rgba_size");
+      _session_next_rgba =
+          dylib.lookupFunction<F5, F5Dart>("session_next_rgba");
+      _session_register_texture =
+          dylib.lookupFunction<F6, F6Dart>("session_register_texture");
       try {
         // SYSTEM user failed
         _dir = (await getApplicationDocumentsDirectory()).path;
@@ -140,13 +172,11 @@ class PlatformFFI {
         debugPrint('Failed to get documents directory: $e');
       }
       _ffiBind = RustdeskImpl(dylib);
-
-      if (isLinux) {
-        if (isMain) {
-          // Start a dbus service for uri links, no need to await
-          _ffiBind.mainStartDbusServer();
-        }
-      } else if (isMacOS && isMain) {
+      if (Platform.isLinux) {
+        // Start a dbus service, no need to await
+        _ffiBind.mainStartDbusServer();
+        _ffiBind.mainStartPa();
+      } else if (Platform.isMacOS && isMain) {
         // Start ipc service for uri links.
         _ffiBind.mainStartIpcUrlServer();
       }
@@ -166,20 +196,20 @@ class PlatformFFI {
       String id = 'NA';
       String name = 'Flutter';
       DeviceInfoPlugin deviceInfo = DeviceInfoPlugin();
-      if (isAndroid) {
+      if (Platform.isAndroid) {
         AndroidDeviceInfo androidInfo = await deviceInfo.androidInfo;
         name = '${androidInfo.brand}-${androidInfo.model}';
         id = androidInfo.id.hashCode.toString();
-        androidVersion = androidInfo.version.sdkInt;
-      } else if (isIOS) {
+        androidVersion = androidInfo.version.sdkInt ?? 0;
+      } else if (Platform.isIOS) {
         IosDeviceInfo iosInfo = await deviceInfo.iosInfo;
-        name = iosInfo.utsname.machine;
+        name = iosInfo.utsname.machine ?? '';
         id = iosInfo.identifierForVendor.hashCode.toString();
-      } else if (isLinux) {
+      } else if (Platform.isLinux) {
         LinuxDeviceInfo linuxInfo = await deviceInfo.linuxInfo;
         name = linuxInfo.name;
         id = linuxInfo.machineId ?? linuxInfo.id;
-      } else if (isWindows) {
+      } else if (Platform.isWindows) {
         try {
           // request windows build number to fix overflow on win7
           windowsBuildNumber = getWindowsTargetBuildNumber();
@@ -191,7 +221,7 @@ class PlatformFFI {
           name = "unknown";
           id = "unknown";
         }
-      } else if (isMacOS) {
+      } else if (Platform.isMacOS) {
         MacOsDeviceInfo macOsInfo = await deviceInfo.macOsInfo;
         name = macOsInfo.computerName;
         id = macOsInfo.systemGUID ?? '';
@@ -209,17 +239,14 @@ class PlatformFFI {
       await _ffiBind.mainDeviceId(id: id);
       await _ffiBind.mainDeviceName(name: name);
       await _ffiBind.mainSetHomeDir(home: _homeDir);
-      await _ffiBind.mainInit(
-        appDir: _dir,
-        customClientConfig: '',
-      );
+      await _ffiBind.mainInit(appDir: _dir);
     } catch (e) {
       debugPrintStack(label: 'initialize failed: $e');
     }
     version = await getVersion();
   }
 
-  Future<bool> tryHandle(Map<String, dynamic> evt) async {
+  Future<bool> _tryHandle(Map<String, dynamic> evt) async {
     final name = evt['name'];
     if (name != null) {
       final handlers = _eventHandlers[name];
@@ -237,15 +264,14 @@ class PlatformFFI {
 
   /// Start listening to the Rust core's events and frames.
   void _startListenEvent(RustdeskImpl rustdeskImpl) {
-    final appType =
-        _appType == kAppTypeDesktopRemote ? '$_appType,$kWindowId' : _appType;
+    final appType = _appType == kAppTypeDesktopRemote ? '$_appType,$kWindowId' : _appType;
     var sink = rustdeskImpl.startGlobalEventStream(appType: appType);
     sink.listen((message) {
       () async {
         try {
           Map<String, dynamic> event = json.decode(message);
           // _tryHandle here may be more flexible than _eventCallback
-          if (!await tryHandle(event)) {
+          if (!await _tryHandle(event)) {
             if (_eventCallback != null) {
               await _eventCallback!(event);
             }
@@ -261,7 +287,7 @@ class PlatformFFI {
     _eventCallback = fun;
   }
 
-  void setRgbaCallback(void Function(int, Uint8List) fun) async {}
+  void setRgbaCallback(void Function(Uint8List) fun) async {}
 
   void startDesktopWebListener() {}
 
@@ -282,6 +308,4 @@ class PlatformFFI {
   void syncAndroidServiceAppDirConfigPath() {
     invokeMethod(AndroidChannel.kSyncAppDirConfigPath, _dir);
   }
-
-  void setFullscreenCallback(void Function(bool) fun) {}
 }

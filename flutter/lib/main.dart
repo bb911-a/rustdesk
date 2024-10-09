@@ -6,7 +6,6 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_hbb/common/widgets/overlay.dart';
 import 'package:flutter_hbb/desktop/pages/desktop_tab_page.dart';
 import 'package:flutter_hbb/desktop/pages/install_page.dart';
 import 'package:flutter_hbb/desktop/pages/server_page.dart';
@@ -15,20 +14,20 @@ import 'package:flutter_hbb/desktop/screen/desktop_port_forward_screen.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
 import 'package:flutter_hbb/desktop/widgets/refresh_wrapper.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:flutter_hbb/plugin/handlers.dart';
 import 'package:flutter_hbb/utils/multi_window_manager.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:window_manager/window_manager.dart';
 
+// import 'package:window_manager/window_manager.dart';
+
 import 'common.dart';
 import 'consts.dart';
 import 'mobile/pages/home_page.dart';
 import 'mobile/pages/server_page.dart';
 import 'models/platform_model.dart';
-
-import 'package:flutter_hbb/plugin/handlers.dart'
-    if (dart.library.html) 'package:flutter_hbb/web/plugin/handlers.dart';
 
 /// Basic window and launch properties.
 int? kWindowId;
@@ -37,7 +36,6 @@ late List<String> kBootArgs;
 
 Future<void> main(List<String> args) async {
   WidgetsFlutterBinding.ensureInitialized();
-
   debugPrint("launch args: $args");
   kBootArgs = List.from(args);
 
@@ -49,7 +47,7 @@ Future<void> main(List<String> args) async {
   if (args.isNotEmpty && args.first == 'multi_window') {
     kWindowId = int.parse(args[1]);
     stateGlobal.setWindowId(kWindowId!);
-    if (!isMacOS) {
+    if (!Platform.isMacOS) {
       WindowController.fromWindowId(kWindowId!).showTitleBar(false);
     }
     final argument = args[2].isEmpty
@@ -60,12 +58,14 @@ Future<void> main(List<String> args) async {
     // Because stateGlobal.windowId is a global value.
     argument['windowId'] = kWindowId;
     kWindowType = type.windowType;
+    final windowName = getWindowName();
     switch (kWindowType) {
       case WindowType.RemoteDesktop:
         desktopType = DesktopType.remote;
         runMultiWindow(
           argument,
           kAppTypeDesktopRemote,
+          windowName,
         );
         break;
       case WindowType.FileTransfer:
@@ -73,6 +73,7 @@ Future<void> main(List<String> args) async {
         runMultiWindow(
           argument,
           kAppTypeDesktopFileTransfer,
+          windowName,
         );
         break;
       case WindowType.PortForward:
@@ -80,6 +81,7 @@ Future<void> main(List<String> args) async {
         runMultiWindow(
           argument,
           kAppTypeDesktopPortForward,
+          windowName,
         );
         break;
       default:
@@ -89,16 +91,13 @@ Future<void> main(List<String> args) async {
     debugPrint("--cm started");
     desktopType = DesktopType.cm;
     await windowManager.ensureInitialized();
-    runConnectionManagerScreen();
+    runConnectionManagerScreen(args.contains('--hide'));
   } else if (args.contains('--install')) {
     runInstallPage();
   } else {
     desktopType = DesktopType.main;
     await windowManager.ensureInitialized();
     windowManager.setPreventClose(true);
-    if (isMacOS) {
-      disableWindowMovable(kWindowId);
-    }
     runMainApp(true);
   }
 }
@@ -126,10 +125,9 @@ void runMainApp(bool startService) async {
     bind.pluginSyncUi(syncTo: kAppTypeMain);
     bind.pluginListReload();
   }
-  await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
+  gFFI.abModel.loadCache();
   gFFI.userModel.refreshCurrentUser();
   runApp(App());
-
   // Set window option.
   WindowOptions windowOptions = getHiddenTitleBarWindowOptions();
   windowManager.waitUntilReadyToShow(windowOptions, () async {
@@ -148,37 +146,29 @@ void runMainApp(bool startService) async {
     }
     windowManager.setOpacity(1);
     windowManager.setTitle(getWindowName());
-    // Do not use `windowManager.setResizable()` here.
-    setResizable(!bind.isIncomingOnly());
   });
 }
 
 void runMobileApp() async {
   await initEnv(kAppTypeMain);
   if (isAndroid) androidChannelInit();
-  if (isAndroid) platformFFI.syncAndroidServiceAppDirConfigPath();
-  draggablePositions.load();
-  await Future.wait([gFFI.abModel.loadCache(), gFFI.groupModel.loadCache()]);
+  platformFFI.syncAndroidServiceAppDirConfigPath();
+  gFFI.abModel.loadCache();
   gFFI.userModel.refreshCurrentUser();
   runApp(App());
-  if (!isWeb) await initUniLinks();
 }
 
 void runMultiWindow(
   Map<String, dynamic> argument,
   String appType,
+  String title,
 ) async {
   await initEnv(appType);
-  final title = getWindowName();
   // set prevent close to true, we handle close event manually
   WindowController.fromWindowId(kWindowId!).setPreventClose(true);
-  if (isMacOS) {
-    disableWindowMovable(kWindowId);
-  }
   late Widget widget;
   switch (appType) {
     case kAppTypeDesktopRemote:
-      draggablePositions.load();
       widget = DesktopRemoteScreen(
         params: argument,
       );
@@ -208,16 +198,8 @@ void runMultiWindow(
   }
   switch (appType) {
     case kAppTypeDesktopRemote:
-      // If screen rect is set, the window will be moved to the target screen and then set fullscreen.
-      if (argument['screen_rect'] == null) {
-        // display can be used to control the offset of the window.
-        await restoreWindowPosition(
-          WindowType.RemoteDesktop,
-          windowId: kWindowId!,
-          peerId: argument['id'] as String?,
-          display: argument['display'] as int?,
-        );
-      }
+      await restoreWindowPosition(WindowType.RemoteDesktop,
+          windowId: kWindowId!, peerId: argument['id'] as String?);
       break;
     case kAppTypeDesktopFileTransfer:
       await restoreWindowPosition(WindowType.FileTransfer,
@@ -234,43 +216,36 @@ void runMultiWindow(
   WindowController.fromWindowId(kWindowId!).show();
 }
 
-void runConnectionManagerScreen() async {
+void runConnectionManagerScreen(bool hide) async {
   await initEnv(kAppTypeConnectionManager);
   _runApp(
     '',
     const DesktopServerPage(),
     MyTheme.currentThemeMode(),
   );
-  final hide = await bind.cmGetConfig(name: "hide_cm") == 'true';
-  gFFI.serverModel.hideCm = hide;
   if (hide) {
     await hideCmWindow(isStartup: true);
   } else {
     await showCmWindow(isStartup: true);
   }
-  setResizable(false);
+  windowManager.setResizable(false);
   // Start the uni links handler and redirect links to Native, not for Flutter.
   listenUniLinks(handleByFlutter: false);
 }
 
-bool _isCmReadyToShow = false;
-
 showCmWindow({bool isStartup = false}) async {
   if (isStartup) {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-        size: kConnectionManagerWindowSizeClosedChat, alwaysOnTop: true);
-    await windowManager.waitUntilReadyToShow(windowOptions, null);
-    bind.mainHideDock();
-    await Future.wait([
-      windowManager.show(),
-      windowManager.focus(),
-      windowManager.setOpacity(1)
-    ]);
-    // ensure initial window size to be changed
-    await windowManager.setSizeAlignment(
-        kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
-    _isCmReadyToShow = true;
-  } else if (_isCmReadyToShow) {
+        size: kConnectionManagerWindowSizeClosedChat);
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      bind.mainHideDocker();
+      await windowManager.show();
+      await Future.wait([windowManager.focus(), windowManager.setOpacity(1)]);
+      // ensure initial window size to be changed
+      await windowManager.setSizeAlignment(
+          kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
+    });
+  } else {
     if (await windowManager.getOpacity() != 1) {
       await windowManager.setOpacity(1);
       await windowManager.focus();
@@ -287,18 +262,16 @@ hideCmWindow({bool isStartup = false}) async {
     WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
         size: kConnectionManagerWindowSizeClosedChat);
     windowManager.setOpacity(0);
-    await windowManager.waitUntilReadyToShow(windowOptions, null);
-    bind.mainHideDock();
-    await windowManager.minimize();
-    await windowManager.hide();
-    _isCmReadyToShow = true;
-  } else if (_isCmReadyToShow) {
-    if (await windowManager.getOpacity() != 0) {
-      await windowManager.setOpacity(0);
-      bind.mainHideDock();
+    windowManager.waitUntilReadyToShow(windowOptions, () async {
+      bind.mainHideDocker();
       await windowManager.minimize();
       await windowManager.hide();
-    }
+    });
+  } else {
+    await windowManager.setOpacity(0);
+    bind.mainHideDocker();
+    await windowManager.minimize();
+    await windowManager.hide();
   }
 }
 
@@ -347,11 +320,12 @@ void runInstallPage() async {
     windowManager.focus();
     windowManager.setOpacity(1);
     windowManager.setAlignment(Alignment.center); // ensure
+    windowManager.setTitle(getWindowName());
   });
 }
 
 WindowOptions getHiddenTitleBarWindowOptions(
-    {Size? size, bool center = false, bool? alwaysOnTop}) {
+    {Size? size, bool center = false}) {
   var defaultTitleBarStyle = TitleBarStyle.hidden;
   // we do not hide titlebar on win7 because of the frame overflow.
   if (kUseCompatibleUiMode) {
@@ -363,7 +337,6 @@ WindowOptions getHiddenTitleBarWindowOptions(
     backgroundColor: Colors.transparent,
     skipTaskbar: false,
     titleBarStyle: defaultTitleBarStyle,
-    alwaysOnTop: alwaysOnTop,
   );
 }
 
@@ -372,7 +345,7 @@ class App extends StatefulWidget {
   State<App> createState() => _AppState();
 }
 
-class _AppState extends State<App> with WidgetsBindingObserver {
+class _AppState extends State<App> {
   @override
   void initState() {
     super.initState();
@@ -396,34 +369,6 @@ class _AppState extends State<App> with WidgetsBindingObserver {
         bind.mainChangeTheme(dark: to.toShortString());
       }
     };
-    WidgetsBinding.instance.addObserver(this);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _updateOrientation());
-  }
-
-  @override
-  void dispose() {
-    WidgetsBinding.instance.removeObserver(this);
-    super.dispose();
-  }
-
-  @override
-  void didChangeMetrics() {
-    _updateOrientation();
-  }
-
-  void _updateOrientation() {
-    if (isDesktop) return;
-
-    // Don't use `MediaQuery.of(context).orientation` in `didChangeMetrics()`,
-    // my test (Flutter 3.19.6, Android 14) is always the reverse value.
-    // https://github.com/flutter/flutter/issues/60899
-    // stateGlobal.isPortrait.value =
-    //     MediaQuery.of(context).orientation == Orientation.portrait;
-
-    final orientation = View.of(context).physicalSize.aspectRatio > 1
-        ? Orientation.landscape
-        : Orientation.portrait;
-    stateGlobal.isPortrait.value = orientation == Orientation.portrait;
   }
 
   @override
@@ -450,7 +395,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
           themeMode: MyTheme.currentThemeMode(),
           home: isDesktop
               ? const DesktopTabPage()
-              : isWeb
+              : !isAndroid
                   ? WebHomePage()
                   : HomePage(),
           localizationsDelegates: const [
@@ -467,7 +412,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
               ? (context, child) => AccessibilityListener(
                     child: MediaQuery(
                       data: MediaQuery.of(context).copyWith(
-                        textScaler: TextScaler.linear(1.0),
+                        textScaleFactor: 1.0,
                       ),
                       child: child ?? Container(),
                     ),
@@ -477,9 +422,6 @@ class _AppState extends State<App> with WidgetsBindingObserver {
                   child = botToastBuilder(context, child);
                   if (isDesktop && desktopType == DesktopType.main) {
                     child = keyListenerBuilder(context, child);
-                  }
-                  if (isLinux) {
-                    child = buildVirtualWindowFrame(context, child);
                   }
                   return child;
                 },
@@ -492,7 +434,7 @@ class _AppState extends State<App> with WidgetsBindingObserver {
 Widget _keepScaleBuilder(BuildContext context, Widget? child) {
   return MediaQuery(
     data: MediaQuery.of(context).copyWith(
-      textScaler: TextScaler.linear(1.0),
+      textScaleFactor: 1.0,
     ),
     child: child ?? Container(),
   );

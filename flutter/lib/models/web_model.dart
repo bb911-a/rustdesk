@@ -3,24 +3,15 @@
 import 'dart:convert';
 import 'dart:typed_data';
 import 'dart:js';
+
+import '../common.dart';
 import 'dart:html';
 import 'dart:async';
-
-import 'package:flutter/foundation.dart';
-import 'package:flutter_hbb/models/state_model.dart';
-
-import 'package:flutter_hbb/web/bridge.dart';
-import 'package:flutter_hbb/common.dart';
 
 final List<StreamSubscription<MouseEvent>> mouseListeners = [];
 final List<StreamSubscription<KeyboardEvent>> keyListeners = [];
 
-typedef HandleEvent = Future<void> Function(Map<String, dynamic> evt);
-
 class PlatformFFI {
-  final _eventHandlers = <String, Map<String, HandleEvent>>{};
-  final RustdeskImpl _ffiBind = RustdeskImpl();
-
   static String getByName(String name, [String arg = '']) {
     return context.callMethod('getByName', [name, arg]);
   }
@@ -29,101 +20,19 @@ class PlatformFFI {
     context.callMethod('setByName', [name, value]);
   }
 
-  PlatformFFI._() {
-    window.document.addEventListener(
-        'visibilitychange',
-        (event) => {
-              stateGlobal.isWebVisible =
-                  window.document.visibilityState == 'visible'
-            });
-  }
-
+  PlatformFFI._();
   static final PlatformFFI instance = PlatformFFI._();
 
   static get localeName => window.navigator.language;
-  RustdeskImpl get ffiBind => _ffiBind;
 
-  static Future<String> getVersion() async {
-    throw UnimplementedError();
-  }
-
-  bool registerEventHandler(
-      String eventName, String handlerName, HandleEvent handler) {
-    debugPrint('registerEventHandler $eventName $handlerName');
-    var handlers = _eventHandlers[eventName];
-    if (handlers == null) {
-      _eventHandlers[eventName] = {handlerName: handler};
-      return true;
-    } else {
-      if (handlers.containsKey(handlerName)) {
-        return false;
-      } else {
-        handlers[handlerName] = handler;
-        return true;
-      }
-    }
-  }
-
-  void unregisterEventHandler(String eventName, String handlerName) {
-    debugPrint('unregisterEventHandler $eventName $handlerName');
-    var handlers = _eventHandlers[eventName];
-    if (handlers != null) {
-      handlers.remove(handlerName);
-    }
-  }
-
-  Future<bool> tryHandle(Map<String, dynamic> evt) async {
-    final name = evt['name'];
-    if (name != null) {
-      final handlers = _eventHandlers[name];
-      if (handlers != null) {
-        if (handlers.isNotEmpty) {
-          for (var handler in handlers.values) {
-            await handler(evt);
-          }
-          return true;
-        }
-      }
-    }
-    return false;
-  }
-
-  String translate(String name, String locale) =>
-      _ffiBind.translate(name: name, locale: locale);
-
-  Uint8List? getRgba(SessionID sessionId, int display, int bufSize) {
-    throw UnimplementedError();
-  }
-
-  int getRgbaSize(SessionID sessionId, int display) =>
-      _ffiBind.sessionGetRgbaSize(sessionId: sessionId, display: display);
-  void nextRgba(SessionID sessionId, int display) =>
-      _ffiBind.sessionNextRgba(sessionId: sessionId, display: display);
-  void registerPixelbufferTexture(SessionID sessionId, int display, int ptr) =>
-      _ffiBind.sessionRegisterPixelbufferTexture(
-          sessionId: sessionId, display: display, ptr: ptr);
-  void registerGpuTexture(SessionID sessionId, int display, int ptr) =>
-      _ffiBind.sessionRegisterGpuTexture(
-          sessionId: sessionId, display: display, ptr: ptr);
-
-  Future<void> init(String appType) async {
+  static Future<void> init(String _appType) async {
+    isWeb = true;
+    isWebDesktop = !context.callMethod('isMobile');
     context.callMethod('init');
     version = getByName('version');
-    window.onContextMenu.listen((event) {
-      event.preventDefault();
-    });
-
-    context['onRegisteredEvent'] = (String message) {
-      try {
-        Map<String, dynamic> event = json.decode(message);
-        tryHandle(event);
-      } catch (e) {
-        print('json.decode fail(): $e');
-      }
-    };
   }
 
-  void setEventCallback(void Function(Map<String, dynamic>) fun) {
+  static void setEventCallback(void Function(Map<String, dynamic>) fun) {
     context["onGlobalEvent"] = (String message) {
       try {
         Map<String, dynamic> event = json.decode(message);
@@ -134,20 +43,20 @@ class PlatformFFI {
     };
   }
 
-  void setRgbaCallback(void Function(int, Uint8List) fun) {
-    context["onRgba"] = (int display, Uint8List? rgba) {
+  static void setRgbaCallback(void Function(Uint8List) fun) {
+    context["onRgba"] = (Uint8List? rgba) {
       if (rgba != null) {
-        fun(display, rgba);
+        fun(rgba);
       }
     };
   }
 
-  void startDesktopWebListener() {
+  static void startDesktopWebListener() {
     mouseListeners.add(
         window.document.onContextMenu.listen((evt) => evt.preventDefault()));
   }
 
-  void stopDesktopWebListener() {
+  static void stopDesktopWebListener() {
     for (var ml in mouseListeners) {
       ml.cancel();
     }
@@ -158,18 +67,9 @@ class PlatformFFI {
     keyListeners.clear();
   }
 
-  void setMethodCallHandler(FMethod callback) {}
+  static void setMethodCallHandler(FMethod callback) {}
 
-  invokeMethod(String method, [dynamic arguments]) async {
+  static Future<bool> invokeMethod(String method, [dynamic arguments]) async {
     return true;
-  }
-
-  // just for compilation
-  void syncAndroidServiceAppDirConfigPath() {}
-
-  void setFullscreenCallback(void Function(bool) fun) {
-    context["onFullscreenChanged"] = (bool v) {
-      fun(v);
-    };
   }
 }

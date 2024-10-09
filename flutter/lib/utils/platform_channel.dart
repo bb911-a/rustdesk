@@ -1,7 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/main.dart';
-import 'package:flutter_hbb/common.dart';
 
 enum SystemWindowTheme { light, dark }
 
@@ -18,7 +19,7 @@ class RdPlatformChannel {
 
   /// Change the theme of the system window
   Future<void> changeSystemWindowTheme(SystemWindowTheme theme) {
-    assert(isMacOS);
+    assert(Platform.isMacOS);
     if (kDebugMode) {
       print(
           "[Window ${kWindowId ?? 'Main'}] change system window theme to ${theme.name}");
@@ -29,7 +30,7 @@ class RdPlatformChannel {
 
   /// Terminate .app manually.
   Future<void> terminate() {
-    assert(isMacOS);
+    assert(Platform.isMacOS);
     return _osxMethodChannel.invokeMethod("terminate");
   }
 }

@@ -63,7 +63,7 @@ impl AppHandler for Rc<Host> {
 }
 
 // https://github.com/xi-editor/druid/blob/master/druid-shell/src/platform/mac/application.rs
-unsafe fn set_delegate(handler: Option<Box<dyn AppHandler>>) {
+pub unsafe fn set_delegate(handler: Option<Box<dyn AppHandler>>) {
     let Some(mut decl) = ClassDecl::new("AppDelegate", class!(NSObject)) else {
         log::error!("Failed to new AppDelegate");
         return;
@@ -105,8 +105,8 @@ unsafe fn set_delegate(handler: Option<Box<dyn AppHandler>>) {
         handle_menu_item as extern "C" fn(&mut Object, Sel, id),
     );
     decl.add_method(
-        sel!(application:openURLs:),
-        handle_open_urls as extern "C" fn(&Object, Sel, id, id) -> (),
+        sel!(handleEvent:withReplyEvent:),
+        handle_apple_event as extern "C" fn(&Object, Sel, u64, u64) -> BOOL,
     );
     let decl = decl.register();
     let delegate: id = msg_send![decl, alloc];
@@ -186,19 +186,12 @@ extern "C" fn handle_menu_item(this: &mut Object, _: Sel, item: id) {
 }
 
 #[no_mangle]
-extern "C" fn handle_open_urls(_self: &Object, _cmd: Sel, _: id, urls: id) -> () {
-    use cocoa::foundation::NSArray;
-    use cocoa::foundation::NSURL;
-    use std::ffi::CStr;
-    unsafe {
-        for i in 0..urls.count() {
-            let theurl = CStr::from_ptr(urls.objectAtIndex(i).absoluteString().UTF8String())
-                .to_string_lossy()
-                .into_owned();
-            log::debug!("URL received: {}", theurl);
-            std::thread::spawn(move || crate::handle_url_scheme(theurl));
-        }
-    }
+extern "C" fn handle_apple_event(_this: &Object, _cmd: Sel, event: u64, _reply: u64) -> BOOL {
+    let event = event as *mut Object;
+    let url = fruitbasket::parse_url_event(event);
+    log::debug!("an event was received: {}", url);
+    std::thread::spawn(move || crate::handle_url_scheme(url));
+    YES
 }
 
 // Customize the service opening logic.

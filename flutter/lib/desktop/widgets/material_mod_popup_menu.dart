@@ -271,7 +271,7 @@ class PopupMenuItem<T> extends PopupMenuEntry<T> {
   /// The text style of the popup menu item.
   ///
   /// If this property is null, then [PopupMenuThemeData.textStyle] is used.
-  /// If [PopupMenuThemeData.textStyle] is also null, then [TextTheme.titleMedium]
+  /// If [PopupMenuThemeData.textStyle] is also null, then [TextTheme.subtitle1]
   /// of [ThemeData.textTheme] is used.
   final TextStyle? textStyle;
 
@@ -341,9 +341,8 @@ class PopupMenuItemState<T, W extends PopupMenuItem<T>> extends State<W> {
   @protected
   void handleTap() {
     widget.onTap?.call();
-    if (Navigator.canPop(context)) {
-      Navigator.pop<T>(context, widget.value);
-    }
+
+    Navigator.pop<T>(context, widget.value);
   }
 
   @override
@@ -352,7 +351,7 @@ class PopupMenuItemState<T, W extends PopupMenuItem<T>> extends State<W> {
     final PopupMenuThemeData popupMenuTheme = PopupMenuTheme.of(context);
     TextStyle style = widget.textStyle ??
         popupMenuTheme.textStyle ??
-        theme.textTheme.titleMedium!;
+        theme.textTheme.subtitle1!;
 
     if (!widget.enabled) style = style.copyWith(color: theme.disabledColor);
 

@@ -2,13 +2,9 @@ use super::*;
 use hbb_common::{allow_err, platform::linux::DISTRO};
 use scrap::{is_cursor_embedded, set_map_err, Capturer, Display, Frame, TraitCapturer};
 use std::io;
-use std::process::{Command, Output};
 
-use crate::{
-    client::{
-        SCRAP_OTHER_VERSION_OR_X11_REQUIRED, SCRAP_UBUNTU_HIGHER_REQUIRED, SCRAP_X11_REQUIRED,
-    },
-    platform::linux::is_x11,
+use crate::client::{
+    SCRAP_OTHER_VERSION_OR_X11_REQUIRED, SCRAP_UBUNTU_HIGHER_REQUIRED, SCRAP_X11_REQUIRED,
 };
 
 lazy_static::lazy_static! {
@@ -76,6 +72,12 @@ impl TraitCapturer for CapturerPtr {
     fn frame<'a>(&'a mut self, timeout: Duration) -> io::Result<Frame<'a>> {
         unsafe { (*self.0).frame(timeout) }
     }
+
+    fn set_use_yuv(&mut self, use_yuv: bool) {
+        unsafe {
+            (*self.0).set_use_yuv(use_yuv);
+        }
+    }
 }
 
 struct CapDisplayInfo {
@@ -93,7 +95,7 @@ pub(super) async fn ensure_inited() -> ResultType<()> {
 }
 
 pub(super) fn is_inited() -> Option<Message> {
-    if is_x11() {
+    if scrap::is_x11() {
         None
     } else {
         if *CAP_DISPLAY_INFO.read().unwrap() == 0 {
@@ -113,39 +115,19 @@ pub(super) fn is_inited() -> Option<Message> {
     }
 }
 
-fn get_max_desktop_resolution() -> Option<String> {
-    // works with Xwayland
-    let output: Output = Command::new("sh")
-        .arg("-c")
-        .arg("xrandr | awk '/current/ { print $8,$9,$10 }'")
-        .output()
-        .ok()?;
-
-    if output.status.success() {
-        let result = String::from_utf8_lossy(&output.stdout);
-        Some(result.trim().to_string())
-    } else {
-        None
-    }
-}
-
 pub(super) async fn check_init() -> ResultType<()> {
-    if !is_x11() {
+    if !scrap::is_x11() {
         let mut minx = 0;
         let mut maxx = 0;
         let mut miny = 0;
         let mut maxy = 0;
-        let use_uinput = crate::input_service::wayland_use_uinput();
 
         if *CAP_DISPLAY_INFO.read().unwrap() == 0 {
             let mut lock = CAP_DISPLAY_INFO.write().unwrap();
             if *lock == 0 {
-                let mut all = Display::all()?;
+                let all = Display::all()?;
                 let num = all.len();
-                let primary = super::display_service::get_primary_2(&all);
-                let current = primary;
-                super::display_service::check_update_displays(&all);
-                let mut displays = super::display_service::get_sync_displays();
+                let (primary, mut displays) = super::video_service::get_displays_2(&all);
                 for display in displays.iter_mut() {
                     display.cursor_embedded = is_cursor_embedded();
                 }
@@ -155,11 +137,12 @@ pub(super) async fn check_init() -> ResultType<()> {
                     rects.push((d.origin(), d.width(), d.height()));
                 }
 
-                let display = all.remove(current);
+                let (ndisplay, current, display) =
+                    super::video_service::get_current_display_2(all)?;
                 let (origin, width, height) = (display.origin(), display.width(), display.height());
                 log::debug!(
                     "#displays={}, current={}, origin: {:?}, width={}, height={}, cpus={}/{}",
-                    num,
+                    ndisplay,
                     current,
                     &origin,
                     width,
@@ -168,32 +151,13 @@ pub(super) async fn check_init() -> ResultType<()> {
                     num_cpus::get(),
                 );
 
-                if use_uinput {
-                    let (max_width, max_height) = match get_max_desktop_resolution() {
-                        Some(result) if !result.is_empty() => {
-                            let resolution: Vec<&str> = result.split(" ").collect();
-                            let w: i32 = resolution[0].parse().unwrap_or(origin.0 + width as i32);
-                            let h: i32 = resolution[2]
-                                .trim_end_matches(",")
-                                .parse()
-                                .unwrap_or(origin.1 + height as i32);
-                            if w < origin.0 + width as i32 || h < origin.1 + height as i32 {
-                                (origin.0 + width as i32, origin.1 + height as i32)
-                            } else {
-                                (w, h)
-                            }
-                        }
-                        _ => (origin.0 + width as i32, origin.1 + height as i32),
-                    };
-
-                    minx = 0;
-                    maxx = max_width;
-                    miny = 0;
-                    maxy = max_height;
-                }
+                minx = origin.0;
+                maxx = origin.0 + width as i32;
+                miny = origin.1;
+                maxy = origin.1 + height as i32;
 
                 let capturer = Box::into_raw(Box::new(
-                    Capturer::new(display).with_context(|| "Failed to create capturer")?,
+                    Capturer::new(display, true).with_context(|| "Failed to create capturer")?,
                 ));
                 let capturer = CapturerPtr(capturer);
                 let cap_display_info = Box::into_raw(Box::new(CapDisplayInfo {
@@ -208,30 +172,30 @@ pub(super) async fn check_init() -> ResultType<()> {
             }
         }
 
-        if use_uinput {
-            if minx != maxx && miny != maxy {
-                log::info!(
-                    "update mouse resolution: ({}, {}), ({}, {})",
-                    minx,
-                    maxx,
-                    miny,
-                    maxy
-                );
-                allow_err!(input_service::update_mouse_resolution(minx, maxx, miny, maxy).await);
-            }
+        if minx != maxx && miny != maxy {
+            log::info!(
+                "update mouse resolution: ({}, {}), ({}, {})",
+                minx,
+                maxx,
+                miny,
+                maxy
+            );
+            allow_err!(input_service::update_mouse_resolution(minx, maxx, miny, maxy).await);
         }
     }
     Ok(())
 }
 
-pub(super) async fn get_displays() -> ResultType<Vec<DisplayInfo>> {
+pub(super) async fn get_displays() -> ResultType<(usize, Vec<DisplayInfo>)> {
     check_init().await?;
     let addr = *CAP_DISPLAY_INFO.read().unwrap();
     if addr != 0 {
         let cap_display_info: *const CapDisplayInfo = addr as _;
         unsafe {
             let cap_display_info = &*cap_display_info;
-            Ok(cap_display_info.displays.clone())
+            let primary = cap_display_info.primary;
+            let displays = cap_display_info.displays.clone();
+            Ok((primary, displays))
         }
     } else {
         bail!("Failed to get capturer display info");
@@ -252,7 +216,7 @@ pub(super) fn get_primary() -> ResultType<usize> {
 }
 
 pub fn clear() {
-    if is_x11() {
+    if scrap::is_x11() {
         return;
     }
     let mut write_lock = CAP_DISPLAY_INFO.write().unwrap();
@@ -267,7 +231,7 @@ pub fn clear() {
 }
 
 pub(super) fn get_capturer() -> ResultType<super::video_service::CapturerInfo> {
-    if is_x11() {
+    if scrap::is_x11() {
         bail!("Do not call this function if not wayland");
     }
     let addr = *CAP_DISPLAY_INFO.read().unwrap();
